@@ -20,7 +20,7 @@ Under the hood, Collider manages a shared Wine prefix through Neutron, preservin
 
 Collider is the user-facing frontend. **Neutron** is the compatibility engine underneath it — a patched Wine environment with custom DXVK and DirectComposition implementations that make Adobe apps actually run.
 
-- Neutron repo: [github.com/Nico-LaFoucade/neutron](https://github.com/Nico-LaFoucade/neutron)
+- Neutron repo: [github.com/Nico-LaFoucate/neutron](https://github.com/Nico-LaFoucate/neutron)
 
 -----
 
