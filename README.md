@@ -104,7 +104,7 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 
 ## Installation
 
-> Installer coming soon. For now, see [Neutron](https://github.com/Nico-LaFoucade/neutron) for manual setup instructions.
+> Installer coming soon. For now, see [Neutron](https://github.com/Nico-LaFoucate/neutron) for manual setup instructions.
 
 -----
 
@@ -112,7 +112,7 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 
 Collider does not include, distribute, or facilitate the acquisition of any proprietary software. Users are responsible for ensuring they have appropriate licenses for any software they run through Collider and Neutron.
 
-Adobe, Premiere Pro, After Effects, Photoshop, Audition, and Illustrator are trademarks of Adobe Inc. Smack Studio and Collider are not affiliated with or endorsed by Adobe Inc.
+Adobe, Premiere Pro, After Effects, Photoshop, Audition, and Illustrator are trademarks of Adobe Inc. Nico LaFoucate, Ficus Media Group, Smack Studio and Collider are not affiliated with or endorsed by Adobe Inc.
 
 -----
 
