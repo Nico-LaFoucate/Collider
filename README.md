@@ -130,4 +130,4 @@ Contributions are very welcome. Please open an issue before submitting large pul
 
 -----
 
-*Collider by [Nico LaFoucate](https://github.com/Nico-LaFoucate)*
+*Collider by [Nico LaFoucate](https://github.com/Nico-LaFoucate) - For Creators, Not Coders*
