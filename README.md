@@ -130,4 +130,4 @@ Contributions are very welcome. Please open an issue before submitting large pul
 
 -----
 
-*Collider by [Smack Studio](https://github.com/Nico-LaFoucades) — Smash the barrier.*
+*Collider by [Nico LaFoucate](https://github.com/Nico-LaFoucate)*
