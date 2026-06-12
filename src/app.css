@@ -1,0 +1,26 @@
+/* Global theme — applies the dark background to the real page surfaces so the
+   whole window is dark, not just the cards. The component's :global(body) rule
+   couldn't reliably reach the SvelteKit wrapper div; setting it here on html,
+   body, and the #app wrapper guarantees full coverage. */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: #0a0a0d;
+  color: #e8e8ec;
+  font-family: system-ui, sans-serif;
+}
+
+/* The SvelteKit body wrapper must fill the viewport, or white shows through. */
+#app {
+  min-height: 100vh;
+  background: #0a0a0d;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}

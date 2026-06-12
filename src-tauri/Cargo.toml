@@ -1,0 +1,27 @@
+[package]
+name = "collider"
+version = "0.1.0"
+description = "The cockpit for running Adobe Creative Suite on Linux"
+authors = ["Nico LaFoucate"]
+license = "Apache-2.0"
+edition = "2021"
+
+[lib]
+name = "collider_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "2"
+libc = "0.2"
+
+# The Neutron CLI is spawned as a subprocess; no async runtime needed for v0.
+# If we later want non-blocking launches in the UI, add tokio here.
