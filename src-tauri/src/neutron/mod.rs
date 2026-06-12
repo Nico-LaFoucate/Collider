@@ -31,16 +31,59 @@ impl std::error::Error for NeutronError {}
 /// `--json` flag. On non-zero exit, parses the error object so the UI can show
 /// the engine's own `reason` (e.g. "Premiere is running; cannot edit prefs")
 /// rather than a generic message.
+/// Build a `neutron` command with a CLEANED environment.
+///
+/// When Collider runs as a packaged AppImage, the bundle sets variables that
+/// point Python and the dynamic linker at the AppImage's own internals
+/// (PYTHONHOME, PYTHONPATH, LD_LIBRARY_PATH, ...). `neutron` is a Python script,
+/// so an inherited PYTHONHOME makes its interpreter look for the standard
+/// library in the wrong place and die at startup with "No module named
+/// 'encodings'". We remove these so the child uses the SYSTEM Python and
+/// libraries — exactly as it would if the user ran `neutron` in their shell.
+fn clean_command() -> Command {
+    let mut cmd = Command::new("neutron");
+    for var in [
+        "PYTHONHOME",
+        "PYTHONPATH",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONNOUSERSITE",
+        "LD_LIBRARY_PATH",
+        "LD_PRELOAD",
+        "GST_PLUGIN_SYSTEM_PATH",
+        "GST_PLUGIN_SYSTEM_PATH_1_0",
+        "GDK_PIXBUF_MODULE_FILE",
+        "GDK_PIXBUF_MODULEDIR",
+    ] {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
 pub fn run_json(args: &[&str]) -> anyhow::Result<Value> {
-    let output = Command::new("neutron")
+    let output = clean_command()
         .arg("--json")
         .args(args)
         .output()
         .context("failed to spawn `neutron` — is the Neutron CLI installed and on PATH?")?;
 
     // The CLI emits a JSON object on stdout for BOTH success and failure.
-    let json: Value = serde_json::from_slice(&output.stdout)
-        .context("neutron returned non-JSON on stdout")?;
+    // If parsing fails, surface exactly what we got — the exit code, the raw
+    // stdout, and the stderr — so a failure is diagnosable instead of opaque.
+    let json: Value = match serde_json::from_slice(&output.stdout) {
+        Ok(v) => v,
+        Err(_) => {
+            let code = output.status.code().unwrap_or(-1);
+            let out = String::from_utf8_lossy(&output.stdout);
+            let err = String::from_utf8_lossy(&output.stderr);
+            let out_snip = out.trim();
+            let err_snip = err.trim();
+            return Err(anyhow!(
+                "neutron returned non-JSON (exit {code}). stdout: {}. stderr: {}",
+                if out_snip.is_empty() { "<empty>" } else { out_snip },
+                if err_snip.is_empty() { "<empty>" } else { err_snip },
+            ));
+        }
+    };
 
     match output.status.code() {
         Some(0) => Ok(json),
