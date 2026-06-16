@@ -11,6 +11,7 @@
 use std::sync::Mutex;
 use serde_json::Value;
 use crate::core::launch::{LaunchSession, LaunchStep};
+use crate::core::settings::Settings;
 
 /// App-wide state Tauri manages and injects into commands.
 #[derive(Default)]
@@ -81,4 +82,23 @@ pub fn force_quit(state: tauri::State<AppState>) -> Result<LaunchStep, String> {
 pub fn current_step(state: tauri::State<AppState>) -> Result<LaunchStep, String> {
     let session = state.session.lock().map_err(|_| "session lock poisoned")?;
     Ok(session.step.clone())
+}
+
+/// Read persisted settings (Preferences). Defaults if no file yet.
+#[tauri::command]
+pub fn get_settings() -> Result<Settings, String> {
+    Ok(crate::core::settings::load())
+}
+
+/// Persist settings from the Preferences tab.
+#[tauri::command]
+pub fn set_settings(settings: Settings) -> Result<(), String> {
+    crate::core::settings::save(&settings).map_err(estr)
+}
+
+/// Detect the primary monitor's display scale (for the Preferences "Auto" readout).
+/// None => couldn't detect (engine would auto-detect / fall back at launch).
+#[tauri::command]
+pub fn detect_scale() -> Result<Option<f64>, String> {
+    Ok(crate::core::display::detect_display_scale())
 }

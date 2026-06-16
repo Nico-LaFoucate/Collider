@@ -1,7 +1,8 @@
 <script>
-  import { prefixInfo, doctor, launchPremiere, isPremiereAlive, cleanExit, forceQuit } from "$lib/api.js";
+  import { prefixInfo, doctor, launchPremiere, isPremiereAlive, cleanExit, forceQuit,
+           getSettings, setSettings, detectScale } from "$lib/api.js";
   import { open } from "@tauri-apps/plugin-dialog";
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount } from "svelte";
 
   // --- MVP state ---
   // For v0 the prefix is a single known path; later this comes from a prefix registry.
@@ -15,6 +16,30 @@
   let exportDir = $state(null);   // muxer watch target; null = use resolved default
 
   let pollTimer = null;           // liveness poll handle
+
+  // --- view switching + Preferences (settings) ---
+  let view = $state("apps");                                  // "apps" | "preferences"
+  let settings = $state({ scale_mode: "auto", scale_value: 1.5 });
+  let detectedScale = $state(null);                           // live primary-monitor scale, for reference
+
+  onMount(async () => {
+    try { settings = await getSettings(); } catch (_) {}
+    if (settings.scale_value == null) settings.scale_value = detectedScale ?? 1.5;
+  });
+
+  async function openPreferences() {
+    view = "preferences";
+    try { detectedScale = await detectScale(); } catch (_) { detectedScale = null; }
+    if (settings.scale_mode === "manual" && settings.scale_value == null)
+      settings.scale_value = detectedScale ?? 1.5;
+  }
+
+  // Persist on any change. "auto unless overridden": engine uses scale_value only
+  // when scale_mode === "manual".
+  async function saveSettings() {
+    try { await setSettings({ scale_mode: settings.scale_mode, scale_value: settings.scale_value }); }
+    catch (e) { error = String(e); }
+  }
 
   async function refresh() {
     error = null;
@@ -160,11 +185,13 @@
     </div>
     <nav>
       <div class="nav-section">Library</div>
-      <div class="nav-item active">All apps</div>
+      <div class="nav-item" class:active={view === "apps"} role="button" tabindex="0"
+           onclick={() => (view = "apps")}>All apps</div>
       <div class="nav-item disabled" title="Coming soon">Installed</div>
       <div class="nav-section">Tools</div>
       <div class="nav-item disabled" title="Coming soon">Prefixes</div>
-      <div class="nav-item disabled" title="Coming soon">Preferences</div>
+      <div class="nav-item" class:active={view === "preferences"} role="button" tabindex="0"
+           onclick={openPreferences}>Preferences</div>
     </nav>
 
     <div class="sys">
@@ -187,6 +214,7 @@
   </aside>
 
   <main>
+  {#if view === "apps"}
     <header>
       <div>
         <div class="title">All apps</div>
@@ -245,6 +273,12 @@
           {/if}
           {#if running}
             <span class="pill ok pulse">hwmux watching</span>
+            {#if step.detail?.display}
+              <span class="pill ok">{step.detail.display === "wayland" ? "Wayland" : "X11"}</span>
+            {/if}
+            {#if step.detail && step.detail.neutron_wine === false}
+              <span class="pill bad" title="Neutron wine not found — playback/HiDPI fixes are inactive">⚠ Neutron wine missing</span>
+            {/if}
           {/if}
         </div>
 
@@ -274,6 +308,46 @@
       </article>
     </section>
     </div>
+  {:else if view === "preferences"}
+    <header>
+      <div>
+        <div class="title">Preferences</div>
+        <div class="subtitle">Collider settings · stored in ~/.config/collider</div>
+      </div>
+    </header>
+    <div class="scroll">
+      <section class="prefs">
+        <div class="pref-group">
+          <div class="pref-label">Display scale</div>
+          <div class="pref-desc">
+            How crisp the app UI renders on HiDPI displays. <b>Auto</b> uses your primary
+            monitor's scale; <b>Manual</b> overrides it. Applied at launch
+            (LogPixels = 96 × scale), engine-side.
+          </div>
+          <div class="pref-row">
+            <label class="radio">
+              <input type="radio" name="scalemode" value="auto"
+                     checked={settings.scale_mode === "auto"}
+                     onchange={() => { settings.scale_mode = "auto"; saveSettings(); }} />
+              Auto{#if detectedScale} <span class="muted">(detected: {detectedScale.toFixed(2)}×)</span>{/if}
+            </label>
+            <label class="radio">
+              <input type="radio" name="scalemode" value="manual"
+                     checked={settings.scale_mode === "manual"}
+                     onchange={() => { settings.scale_mode = "manual";
+                       if (settings.scale_value == null) settings.scale_value = detectedScale ?? 1.5;
+                       saveSettings(); }} />
+              Manual
+            </label>
+            {#if settings.scale_mode === "manual"}
+              <input class="scale-input" type="number" min="0.5" max="3" step="0.05"
+                     bind:value={settings.scale_value} onchange={saveSettings} />
+            {/if}
+          </div>
+        </div>
+      </section>
+    </div>
+  {/if}
 
     <footer>
       <span class="dot ok"></span>
@@ -358,4 +432,15 @@
   footer { flex-shrink: 0; padding: 10px 22px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: rgba(255,255,255,0.4); }
 
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  /* Preferences view */
+  .prefs { padding: 22px; max-width: 560px; }
+  .pref-group { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 16px 18px; }
+  .pref-label { font-size: 14px; font-weight: 600; color: #e8e8ec; margin-bottom: 4px; }
+  .pref-desc { font-size: 11.5px; color: rgba(255,255,255,0.45); line-height: 1.5; margin-bottom: 14px; }
+  .pref-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .radio { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: rgba(255,255,255,0.8); cursor: pointer; }
+  .radio input { accent-color: #9a5cf5; }
+  .muted { color: rgba(255,255,255,0.4); }
+  .scale-input { width: 84px; padding: 6px 8px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #e8e8ec; font-size: 12.5px; }
 </style>

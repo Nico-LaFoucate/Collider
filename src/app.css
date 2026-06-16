@@ -24,3 +24,16 @@ body {
 *::after {
   box-sizing: border-box;
 }
+
+/* Two-column shell layout, promoted to a global rule. The component-scoped
+   `.app { display:flex }` in +page.svelte doesn't take effect under the
+   `tauri dev` WebKitGTK build (the release AppImage is unaffected), so the
+   sidebar+main columns stack. Defining the structural layout globally renders
+   identically in dev and release; `!important` guarantees it wins. */
+.app {
+  display: flex !important;
+  height: 100vh;
+  overflow: hidden;
+}
+.app > aside { width: 200px; flex-shrink: 0; }
+.app > main { flex: 1 1 0; min-width: 0; }

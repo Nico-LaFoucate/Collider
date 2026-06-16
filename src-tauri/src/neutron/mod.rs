@@ -102,10 +102,27 @@ pub fn run_json(args: &[&str]) -> anyhow::Result<Value> {
     }
 }
 
-/// Launch Premiere (GPU is the only mode in v0) and return its PID so the
-/// daemon lifecycle can be tied to it. We never pass `--software` — it's an
-/// honest v0 gap that returns exit 4 (see handoff "Things Collider should NOT do").
-pub fn launch_premiere(prefix: &str, project: Option<&str>) -> anyhow::Result<u32> {
+/// Result of a launch: the PID to supervise, plus the engine's reported display
+/// path (`wayland`/`x11`) and whether the patched Neutron wine was used. The
+/// latter two are advisory (for UI badges / a misconfig warning).
+#[derive(Debug, Clone)]
+pub struct LaunchResult {
+    pub pid: u32,
+    pub display: String,
+    pub neutron_wine: bool,
+}
+
+/// Launch Premiere (GPU is the only mode in v0) and return its PID so the daemon
+/// lifecycle can be tied to it. `scale` (the primary monitor's display scale,
+/// detected cockpit-side) is passed to the engine, which turns it into the right
+/// LogPixels; omitting it (None) makes the engine auto-detect. We never pass
+/// `--software` — an honest v0 gap that returns exit 4.
+pub fn launch_premiere(
+    prefix: &str,
+    project: Option<&str>,
+    scale: Option<f64>,
+) -> anyhow::Result<LaunchResult> {
+    let scale_str: String;
     let mut args = vec!["launch", "premiere", "--prefix", prefix];
     if let Some(p) = project {
         // Project paths are Windows-style inside the prefix, e.g.
@@ -113,8 +130,17 @@ pub fn launch_premiere(prefix: &str, project: Option<&str>) -> anyhow::Result<u3
         args.push("--project");
         args.push(p);
     }
+    if let Some(s) = scale {
+        scale_str = format!("{s}");
+        args.push("--scale");
+        args.push(&scale_str);
+    }
     let v = run_json(&args)?;
-    pid_from(&v)
+    Ok(LaunchResult {
+        pid: pid_from(&v)?,
+        display: v.get("display").and_then(|d| d.as_str()).unwrap_or("unknown").to_string(),
+        neutron_wine: v.get("neutron_wine").and_then(|n| n.as_bool()).unwrap_or(false),
+    })
 }
 
 /// Resolve a prefix's paths. `documents_real` (symlink-resolved) is the value

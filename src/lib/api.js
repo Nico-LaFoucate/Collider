@@ -47,3 +47,18 @@ export async function forceQuit() {
 export async function currentStep() {
   return await invoke("current_step");
 }
+
+/** Read persisted settings (Preferences). Returns { scale_mode, scale_value }. */
+export async function getSettings() {
+  return await invoke("get_settings");
+}
+
+/** Persist settings from the Preferences tab. `settings` = { scale_mode, scale_value }. */
+export async function setSettings(settings) {
+  return await invoke("set_settings", { settings });
+}
+
+/** Detect the primary monitor's display scale (for the Preferences readout). May be null. */
+export async function detectScale() {
+  return await invoke("detect_scale");
+}

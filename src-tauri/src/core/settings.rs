@@ -1,0 +1,67 @@
+// core/settings.rs
+//
+// Persisted Collider settings (~/.config/collider/config.json). Loaded at the
+// start of a launch and editable from the Preferences tab. Designed to grow:
+// the neutron path, export-folder persistence, GPU mode, etc. land here later.
+//
+// Robustness contract: load() NEVER panics — a missing or corrupt file yields
+// defaults, so a bad config can never wedge the app.
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Settings {
+    /// "auto" => detect the display scale; "manual" => use `scale_value`.
+    pub scale_mode: String,
+    /// The manual display-scale override (used only when scale_mode == "manual").
+    pub scale_value: Option<f64>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { scale_mode: "auto".into(), scale_value: None }
+    }
+}
+
+fn config_path() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(PathBuf::from(home).join(".config/collider/config.json"))
+}
+
+/// Load settings; defaults if the file is absent or unreadable/corrupt (never panics).
+pub fn load() -> Settings {
+    let Some(p) = config_path() else { return Settings::default() };
+    match std::fs::read_to_string(&p) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => Settings::default(),
+    }
+}
+
+/// Persist settings, creating ~/.config/collider/ if needed.
+pub fn save(s: &Settings) -> std::io::Result<()> {
+    let Some(p) = config_path() else {
+        return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no HOME directory"));
+    };
+    if let Some(dir) = p.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let json = serde_json::to_string_pretty(s)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::write(&p, json)
+}
+
+/// The display scale to pass to the engine: the manual override when set, else
+/// the detected primary-monitor scale, else None (engine auto-detects). This is
+/// the "auto unless overridden" rule the Preferences scale control drives.
+pub fn effective_scale() -> Option<f64> {
+    let s = load();
+    if s.scale_mode == "manual" {
+        if let Some(v) = s.scale_value {
+            if v > 0.0 {
+                return Some(v);
+            }
+        }
+    }
+    crate::core::display::detect_display_scale()
+}

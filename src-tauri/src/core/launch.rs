@@ -27,7 +27,7 @@ pub enum LaunchStep {
     ApplyingDisplayFix,
     LaunchingPremiere,
     StartingDaemon,
-    Running { premiere_pid: u32, daemon_pid: u32 },
+    Running { premiere_pid: u32, daemon_pid: u32, display: String, neutron_wine: bool },
     Failed { at: String, reason: String },
     Stopped,
 }
@@ -74,11 +74,18 @@ impl LaunchSession {
         }
 
         // 3. Launch Premiere (GPU only in v0) — get the PID to supervise.
+        //    Resolve the display scale cockpit-side (primary monitor) and pass it;
+        //    the engine turns it into LogPixels. None => engine auto-detects.
+        //    (Layer 3 will let a manual Preferences override win here.)
         self.step = LaunchStep::LaunchingPremiere;
-        let premiere_pid = match crate::neutron::launch_premiere(prefix, project) {
-            Ok(pid) => pid,
+        let scale = crate::core::settings::effective_scale();
+        let result = match crate::neutron::launch_premiere(prefix, project, scale) {
+            Ok(r) => r,
             Err(e) => return self.fail("launch", &e.to_string()),
         };
+        let premiere_pid = result.pid;
+        let display = result.display;
+        let neutron_wine = result.neutron_wine;
         self.premiere_pid = Some(premiere_pid);
 
         // 4. Start hwmux watching the export dir. Override if the user set one,
@@ -98,7 +105,7 @@ impl LaunchSession {
         let daemon_pid = daemon.pid().unwrap_or(0);
         self.daemon = Some(daemon);
 
-        self.step = LaunchStep::Running { premiere_pid, daemon_pid };
+        self.step = LaunchStep::Running { premiere_pid, daemon_pid, display, neutron_wine };
         &self.step
     }
 

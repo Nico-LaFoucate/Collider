@@ -21,6 +21,9 @@ pub fn run() {
             commands::clean_exit,
             commands::force_quit,
             commands::current_step,
+            commands::get_settings,
+            commands::set_settings,
+            commands::detect_scale,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Collider");
