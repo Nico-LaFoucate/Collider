@@ -1,6 +1,6 @@
 <script>
   import { prefixInfo, doctor, launchPremiere, isPremiereAlive, cleanExit, forceQuit,
-           getSettings, setSettings, detectScale } from "$lib/api.js";
+           getSettings, setSettings, detectScale, compositorInfo } from "$lib/api.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onDestroy, onMount } from "svelte";
 
@@ -19,8 +19,9 @@
 
   // --- view switching + Preferences (settings) ---
   let view = $state("apps");                                  // "apps" | "preferences"
-  let settings = $state({ scale_mode: "auto", scale_value: 1.5 });
+  let settings = $state({ scale_mode: "auto", scale_value: 1.5, home_window_fix: true, home_window_y: 82 });
   let detectedScale = $state(null);                           // live primary-monitor scale, for reference
+  let compositor = $state(null);                              // { wayland, desktop, home_rule_supported }
 
   onMount(async () => {
     try { settings = await getSettings(); } catch (_) {}
@@ -30,15 +31,23 @@
   async function openPreferences() {
     view = "preferences";
     try { detectedScale = await detectScale(); } catch (_) { detectedScale = null; }
+    try { compositor = await compositorInfo(); } catch (_) { compositor = null; }
     if (settings.scale_mode === "manual" && settings.scale_value == null)
       settings.scale_value = detectedScale ?? 1.5;
   }
 
   // Persist on any change. "auto unless overridden": engine uses scale_value only
-  // when scale_mode === "manual".
+  // when scale_mode === "manual". set_settings also (re)writes the Wayland
+  // home-window compositor rule, so toggling it takes effect immediately.
   async function saveSettings() {
-    try { await setSettings({ scale_mode: settings.scale_mode, scale_value: settings.scale_value }); }
-    catch (e) { error = String(e); }
+    try {
+      await setSettings({
+        scale_mode: settings.scale_mode,
+        scale_value: settings.scale_value,
+        home_window_fix: settings.home_window_fix,
+        home_window_y: settings.home_window_y,
+      });
+    } catch (e) { error = String(e); }
   }
 
   async function refresh() {
@@ -345,6 +354,42 @@
             {/if}
           </div>
         </div>
+
+        {#if compositor?.wayland}
+        <div class="pref-group">
+          <div class="pref-label">Premiere home-screen position (Wayland)</div>
+          <div class="pref-desc">
+            On Wayland, Premiere's home/Welcome screen loads too high and covers the menu
+            bar (Wayland doesn't let apps position their own windows). This pins it back into
+            place via a compositor window rule.
+            {#if !compositor.home_rule_supported}
+              <b>Not supported on your compositor ({compositor.desktop}) yet</b> — use the X11
+              display mode if you need it.
+            {/if}
+          </div>
+          <div class="pref-row">
+            <label class="radio">
+              <input type="checkbox" disabled={!compositor.home_rule_supported}
+                     bind:checked={settings.home_window_fix} onchange={saveSettings} />
+              Fix home-screen position
+            </label>
+            {#if settings.home_window_fix && compositor.home_rule_supported}
+              <label class="muted" style="display:flex;align-items:center;gap:6px;">
+                Y offset
+                <input class="scale-input" type="number" min="0" max="600" step="1"
+                       bind:value={settings.home_window_y} onchange={saveSettings} />
+                px
+              </label>
+            {/if}
+          </div>
+          {#if settings.home_window_fix && compositor.home_rule_supported}
+            <div class="pref-desc muted">
+              Tweak the Y offset if it still doesn't sit right (it depends on your resolution
+              and scale). Lower = higher on screen.
+            </div>
+          {/if}
+        </div>
+        {/if}
       </section>
     </div>
   {/if}

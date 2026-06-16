@@ -10,9 +10,26 @@
 use std::process::Command;
 use serde_json::Value;
 
-enum Desktop { Kde, Gnome, Wlroots, Unknown }
+pub(crate) enum Desktop { Kde, Gnome, Wlroots, Unknown }
 
-fn detect_desktop() -> Desktop {
+/// True when running in a Wayland session (the only place the home-window rule applies).
+pub fn is_wayland() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some()
+        || std::env::var("XDG_SESSION_TYPE").map(|s| s == "wayland").unwrap_or(false)
+}
+
+/// Stable string for the current desktop ("kde" | "gnome" | "wlroots" | "unknown"),
+/// for UI gating and per-compositor rule handling.
+pub fn desktop_kind() -> &'static str {
+    match detect_desktop() {
+        Desktop::Kde => "kde",
+        Desktop::Gnome => "gnome",
+        Desktop::Wlroots => "wlroots",
+        Desktop::Unknown => "unknown",
+    }
+}
+
+pub(crate) fn detect_desktop() -> Desktop {
     let de = std::env::var("XDG_CURRENT_DESKTOP")
         .or_else(|_| std::env::var("XDG_SESSION_DESKTOP"))
         .unwrap_or_default()
@@ -65,7 +82,7 @@ fn kde_scale() -> Option<f64> {
 /// Spawn a system tool with the AppImage's Python/linker env stripped — matches
 /// the caution in `neutron/mod.rs::clean_command`. (kscreen-doctor is a system
 /// binary, so this is belt-and-suspenders, but consistent with the project.)
-fn clean_command(bin: &str) -> Command {
+pub(crate) fn clean_command(bin: &str) -> Command {
     let mut cmd = Command::new(bin);
     for var in [
         "PYTHONHOME", "PYTHONPATH", "PYTHONDONTWRITEBYTECODE", "PYTHONNOUSERSITE",

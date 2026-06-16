@@ -90,10 +90,26 @@ pub fn get_settings() -> Result<Settings, String> {
     Ok(crate::core::settings::load())
 }
 
-/// Persist settings from the Preferences tab.
+/// Persist settings from the Preferences tab. After saving we (best-effort) push
+/// the Wayland home-window rule so a Preferences change takes effect immediately;
+/// a rule-write failure never fails the save.
 #[tauri::command]
 pub fn set_settings(settings: Settings) -> Result<(), String> {
-    crate::core::settings::save(&settings).map_err(estr)
+    crate::core::settings::save(&settings).map_err(estr)?;
+    let _ = crate::core::window_rule::apply(&settings);
+    Ok(())
+}
+
+/// Compositor capability for the Preferences UI: whether we're on Wayland, which
+/// desktop, and whether the home-window position rule is supported here. Lets the
+/// UI show the control only when it can actually do something.
+#[tauri::command]
+pub fn compositor_info() -> Result<Value, String> {
+    Ok(serde_json::json!({
+        "wayland": crate::core::display::is_wayland(),
+        "desktop": crate::core::display::desktop_kind(),
+        "home_rule_supported": crate::core::window_rule::supported(),
+    }))
 }
 
 /// Detect the primary monitor's display scale (for the Preferences "Auto" readout).

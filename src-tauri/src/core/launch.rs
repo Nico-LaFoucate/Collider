@@ -73,6 +73,11 @@ impl LaunchSession {
             return self.fail("display-fix", &e.to_string());
         }
 
+        // 2b. Best-effort: install the Wayland home-window position rule before the
+        //     window appears, so the home screen opens in the right place. Purely
+        //     cosmetic and compositor-side — never block or fail the launch over it.
+        let _ = crate::core::window_rule::apply(&crate::core::settings::load());
+
         // 3. Launch Premiere (GPU only in v0) — get the PID to supervise.
         //    Resolve the display scale cockpit-side (primary monitor) and pass it;
         //    the engine turns it into LogPixels. None => engine auto-detects.

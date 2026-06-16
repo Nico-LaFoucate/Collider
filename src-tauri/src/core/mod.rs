@@ -4,3 +4,4 @@ pub mod daemon;
 pub mod launch;
 pub mod display;
 pub mod settings;
+pub mod window_rule;

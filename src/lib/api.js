@@ -62,3 +62,9 @@ export async function setSettings(settings) {
 export async function detectScale() {
   return await invoke("detect_scale");
 }
+
+/** Compositor capability: { wayland, desktop, home_rule_supported }. Used to gate the
+ *  Wayland home-window-position control in Preferences. */
+export async function compositorInfo() {
+  return await invoke("compositor_info");
+}

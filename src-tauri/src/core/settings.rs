@@ -16,11 +16,30 @@ pub struct Settings {
     pub scale_mode: String,
     /// The manual display-scale override (used only when scale_mode == "manual").
     pub scale_value: Option<f64>,
+
+    /// Wayland-only: pin Premiere's home/Welcome window so it stops loading too
+    /// high over the menu bar (Wayland forbids client toplevel positioning, so
+    /// winewayland forces it to the top). Applied via the compositor's window-rule
+    /// mechanism (KWin today). Default on; no-op on X11 / unsupported compositors.
+    #[serde(default = "default_home_window_fix")]
+    pub home_window_fix: bool,
+    /// Logical-pixel Y the home window is pinned to. Setup-specific (scale/monitor),
+    /// so it's user-tweakable. Default 82 (verified good at 4K @ 1.7×).
+    #[serde(default = "default_home_window_y")]
+    pub home_window_y: i32,
 }
+
+fn default_home_window_fix() -> bool { true }
+fn default_home_window_y() -> i32 { 82 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { scale_mode: "auto".into(), scale_value: None }
+        Self {
+            scale_mode: "auto".into(),
+            scale_value: None,
+            home_window_fix: default_home_window_fix(),
+            home_window_y: default_home_window_y(),
+        }
     }
 }
 

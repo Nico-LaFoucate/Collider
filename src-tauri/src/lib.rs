@@ -24,6 +24,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::detect_scale,
+            commands::compositor_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Collider");
