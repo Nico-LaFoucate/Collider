@@ -73,10 +73,13 @@ impl LaunchSession {
             return self.fail("display-fix", &e.to_string());
         }
 
-        // 2b. Best-effort: install the Wayland home-window position rule before the
-        //     window appears, so the home screen opens in the right place. Purely
-        //     cosmetic and compositor-side — never block or fail the launch over it.
-        let _ = crate::core::window_rule::apply(&crate::core::settings::load());
+        // 2b. Best-effort: install the Neutron decoration before the window appears
+        //     — the dark title-bar/menu prefix colors and the KWin script that tucks
+        //     the Home overlay below the menu bar. Client-side decorations (the wine
+        //     build default) keep the frame self-contained and overflow-free; this
+        //     just themes + positions it. Purely cosmetic — never block the launch.
+        //     (Supersedes the old window_rule position rule, which the script replaces.)
+        let _ = crate::core::decoration::apply(prefix);
 
         // 3. Launch Premiere (GPU only in v0) — get the PID to supervise.
         //    Resolve the display scale cockpit-side (primary monitor) and pass it;
