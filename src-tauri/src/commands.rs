@@ -146,14 +146,21 @@ pub fn get_theme_presets() -> Result<Value, String> {
 #[tauri::command]
 pub fn get_icon_sets() -> Result<Value, String> {
     use crate::core::caption_icons;
-    let mut sets: Vec<Value> = caption_icons::SET_IDS
-        .iter()
-        .map(|id| serde_json::json!({ "id": id, "label": caption_icons::label(id) }))
-        .collect();
+    let mut ids: Vec<&str> = caption_icons::SET_IDS.to_vec();
     // Offer "custom" only when the user has imported icons.
     if caption_icons::custom_set_dir().map(|d| d.join("close.ico").exists()).unwrap_or(false) {
-        sets.push(serde_json::json!({ "id": "custom", "label": caption_icons::label("custom") }));
+        ids.push("custom");
     }
+    let sets: Vec<Value> = ids
+        .iter()
+        .map(|id| {
+            serde_json::json!({
+                "id": id,
+                "label": caption_icons::label(id),
+                "preview": caption_icons::preview_data_uri(id),  // null for "none"
+            })
+        })
+        .collect();
     Ok(Value::Array(sets))
 }
 

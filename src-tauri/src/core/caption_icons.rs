@@ -102,6 +102,50 @@ pub fn install(id: &str, prefix: &str) -> Result<Option<String>, String> {
     Ok(Some(windows_icon_dir(id)))
 }
 
+/// Raw .ico bytes for one button of a set (bundled from the embedded table, or read from
+/// the imported "custom" dir). Used for preview thumbnails.
+fn icon_bytes(id: &str, button: &str) -> Option<Vec<u8>> {
+    let fname = format!("{button}.ico");
+    if let Some(set) = bundled(id) {
+        return set.iter().find(|(n, _)| *n == fname).map(|(_, b)| b.to_vec());
+    }
+    if id == "custom" {
+        return std::fs::read(custom_set_dir()?.join(&fname)).ok();
+    }
+    None
+}
+
+/// A small mini-title-bar PNG preview of the set (min, max, close on a dark strip),
+/// returned as a `data:image/png;base64,...` URI for the Appearance picker. None for
+/// "none" or a set with no loadable icons.
+pub fn preview_data_uri(id: &str) -> Option<String> {
+    use base64::Engine;
+    use image::{imageops, imageops::FilterType, Rgba, RgbaImage};
+
+    if id == "none" {
+        return None;
+    }
+    let (cell, isz) = (22u32, 15u32);
+    let pad = ((cell - isz) / 2) as i64;
+    let mut canvas = RgbaImage::from_pixel(cell * 3, cell, Rgba([43, 43, 43, 255]));
+    for (i, b) in ["min", "max", "close"].iter().enumerate() {
+        let bytes = icon_bytes(id, b)?;
+        let img = image::load_from_memory(&bytes)
+            .ok()?
+            .resize_exact(isz, isz, FilterType::Lanczos3)
+            .to_rgba8();
+        imageops::overlay(&mut canvas, &img, i as i64 * cell as i64 + pad, pad);
+    }
+    let mut png = Vec::new();
+    image::DynamicImage::ImageRgba8(canvas)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .ok()?;
+    Some(format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(&png)
+    ))
+}
+
 /// Directory where imported custom .ico files are stored (~/.config/collider/caption-custom).
 pub fn custom_set_dir() -> Option<std::path::PathBuf> {
     let home = std::env::var_os("HOME")?;

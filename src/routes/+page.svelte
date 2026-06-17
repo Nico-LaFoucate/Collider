@@ -502,21 +502,27 @@
           {/if}
 
           <div class="theme-col-label" style="margin-top:18px;">Window buttons (_ □ X)</div>
-          <div class="pref-row">
-            <select class="icon-select" bind:value={settings.button_icon_set} onchange={saveSettings}>
-              {#each iconSets as s}
-                <option value={s.id}>{s.label}</option>
-              {/each}
-            </select>
-            <button class="ghost-btn" onclick={importIcons} disabled={importing}>
-              {importing ? "Importing…" : "Import…"}
+          <div class="icon-grid">
+            {#each iconSets as s}
+              <button class="icon-card" class:sel={settings.button_icon_set === s.id}
+                      onclick={() => { settings.button_icon_set = s.id; saveSettings(); }}>
+                {#if s.preview}
+                  <img class="icon-thumb" src={s.preview} alt={s.label} />
+                {:else}
+                  <span class="icon-thumb placeholder">_&nbsp;□&nbsp;✕</span>
+                {/if}
+                <span class="icon-card-label">{s.label}</span>
+              </button>
+            {/each}
+            <button class="icon-card" onclick={importIcons} disabled={importing}>
+              <span class="icon-thumb placeholder">{importing ? "…" : "+"}</span>
+              <span class="icon-card-label">{importing ? "Importing…" : "Import…"}</span>
             </button>
-            <span class="muted">Restart Premiere to apply.</span>
           </div>
           <div class="pref-desc muted">
-            Choose a bundled style or import your own. Import a folder containing
-            <b>close</b>, <b>min</b>, <b>max</b>, <b>restore</b> images (.png or .ico).
-            The close button still highlights red on hover.
+            Pick a style or import your own — a folder with <b>close</b>, <b>min</b>,
+            <b>max</b>, <b>restore</b> images (.png or .ico). Restart Premiere to apply;
+            the close button still highlights red on hover.
           </div>
 
           <div class="pref-row" style="margin-top:12px;">
@@ -670,5 +676,12 @@
   .warn { color: #f0b84a; }
   .ghost-btn { padding: 6px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); color: #e8e8ec; font-size: 12px; cursor: pointer; }
   .ghost-btn:disabled { opacity: 0.4; cursor: default; }
-  .icon-select { padding: 6px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #e8e8ec; font-size: 12.5px; min-width: 150px; }
+  .icon-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .icon-card { display: flex; flex-direction: column; align-items: center; gap: 6px; width: 88px; padding: 8px 6px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.10); background: rgba(255,255,255,0.03); color: rgba(255,255,255,0.7); cursor: pointer; transition: border-color .12s, background .12s; }
+  .icon-card:hover { border-color: rgba(255,255,255,0.22); background: rgba(255,255,255,0.06); }
+  .icon-card.sel { border-color: #9a5cf5; background: rgba(154,92,245,0.12); color: #e8e8ec; }
+  .icon-card:disabled { opacity: 0.6; cursor: default; }
+  .icon-thumb { height: 22px; width: auto; border-radius: 4px; background: #2b2b2b; image-rendering: auto; }
+  .icon-thumb.placeholder { display: flex; align-items: center; justify-content: center; width: 66px; height: 22px; font-size: 12px; color: rgba(255,255,255,0.55); letter-spacing: 1px; }
+  .icon-card-label { font-size: 11px; text-align: center; line-height: 1.2; }
 </style>

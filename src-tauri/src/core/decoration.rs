@@ -216,6 +216,33 @@ mod tests {
     }
 
     #[test]
+    fn preview_is_valid_png_data_uri() {
+        use base64::Engine;
+        let uri = crate::core::caption_icons::preview_data_uri("win11").expect("preview");
+        assert!(uri.starts_with("data:image/png;base64,"));
+        let b = base64::engine::general_purpose::STANDARD
+            .decode(uri.strip_prefix("data:image/png;base64,").unwrap())
+            .expect("base64 decode");
+        assert_eq!(&b[1..4], b"PNG"); // PNG signature
+        assert!(crate::core::caption_icons::preview_data_uri("none").is_none());
+    }
+
+    // Dump set previews to /tmp for visual inspection:
+    //   cargo test dump_previews -- --ignored
+    #[test]
+    #[ignore]
+    fn dump_previews() {
+        use base64::Engine;
+        for id in ["macos", "win11", "minimal", "adobe-flat"] {
+            let uri = crate::core::caption_icons::preview_data_uri(id).unwrap();
+            let b = base64::engine::general_purpose::STANDARD
+                .decode(uri.strip_prefix("data:image/png;base64,").unwrap())
+                .unwrap();
+            std::fs::write(format!("/tmp/preview_{id}.png"), b).unwrap();
+        }
+    }
+
+    #[test]
     fn bundled_sets_install_idempotently() {
         // every bundled id resolves and yields a Windows icon dir (smoke test, no prefix writes)
         for id in crate::core::caption_icons::SET_IDS {

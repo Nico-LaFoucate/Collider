@@ -25,6 +25,7 @@ libc = "0.2"
 # Caption-icon import: decode user PNG/JPEG/BMP/ICO and re-encode as .ico for the wine
 # side (which loads .ico natively). Scoped features to keep the build lean.
 image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "bmp"] }
+base64 = "0.22"
 
 # The Neutron CLI is spawned as a subprocess; no async runtime needed for v0.
 # If we later want non-blocking launches in the UI, add tokio here.
