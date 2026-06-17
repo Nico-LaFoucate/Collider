@@ -8,6 +8,7 @@
 // defaults, so a bad config can never wedge the app.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,10 +28,21 @@ pub struct Settings {
     /// so it's user-tweakable. Default 82 (verified good at 4K @ 1.7×).
     #[serde(default = "default_home_window_y")]
     pub home_window_y: i32,
+
+    /// Window-decoration color theme: a built-in preset id ("dark" | "light") or
+    /// "custom". Drives the .reg written into the prefix on launch (core/theme.rs +
+    /// core/decoration.rs). Default "dark" (the Neutron default chrome).
+    #[serde(default = "default_theme")]
+    pub theme: String,
+    /// Custom color overrides (Control Panel color key -> "R G B"), used only when
+    /// theme == "custom". Missing keys fall back to the Dark preset.
+    #[serde(default)]
+    pub custom_colors: Option<BTreeMap<String, String>>,
 }
 
 fn default_home_window_fix() -> bool { true }
 fn default_home_window_y() -> i32 { 82 }
+fn default_theme() -> String { "dark".into() }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -39,6 +51,8 @@ impl Default for Settings {
             scale_value: None,
             home_window_fix: default_home_window_fix(),
             home_window_y: default_home_window_y(),
+            theme: default_theme(),
+            custom_colors: None,
         }
     }
 }

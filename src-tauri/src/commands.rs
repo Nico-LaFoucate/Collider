@@ -118,3 +118,25 @@ pub fn compositor_info() -> Result<Value, String> {
 pub fn detect_scale() -> Result<Option<f64>, String> {
     Ok(crate::core::display::detect_display_scale())
 }
+
+/// Built-in decoration themes for the Appearance panel: each entry is
+/// { id, label, colors } where colors maps Control Panel color keys to "R G B".
+/// The frontend uses these to populate the preset dropdown and to seed the color
+/// editors when the user switches to "custom".
+#[tauri::command]
+pub fn get_theme_presets() -> Result<Value, String> {
+    use crate::core::theme;
+    let presets: Vec<Value> = theme::PRESET_IDS
+        .iter()
+        .filter_map(|id| {
+            theme::preset(id).map(|colors| {
+                serde_json::json!({
+                    "id": id,
+                    "label": theme::preset_label(id),
+                    "colors": colors,
+                })
+            })
+        })
+        .collect();
+    Ok(Value::Array(presets))
+}

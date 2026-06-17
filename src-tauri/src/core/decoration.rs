@@ -23,8 +23,8 @@ use crate::core::display;
 
 const SCRIPT_ID: &str = "neutron-home-overlay";
 
-// Bundled resources (shipped inside the Collider binary).
-const DARK_REG: &str = include_str!("../../resources/neutron-premiere-dark.reg");
+// Bundled resources (shipped inside the Collider binary). The color .reg is no
+// longer bundled — it is generated from the active theme (core/theme.rs).
 const KWIN_METADATA: &str = include_str!("../../resources/kwin/metadata.json");
 const KWIN_MAIN_JS: &str = include_str!("../../resources/kwin/main.js");
 
@@ -49,9 +49,13 @@ pub fn supported() -> bool {
 // ---- 1. prefix colors -----------------------------------------------------
 
 fn apply_prefix_colors(prefix: &str) -> Result<(), String> {
-    // Write the bundled .reg to a temp file and import it into the prefix.
+    // Generate the color .reg from the active theme (preset or custom) and import it.
+    let settings = crate::core::settings::load();
+    let colors = crate::core::theme::active_colors(&settings);
+    let reg = crate::core::theme::reg_text(&colors);
+
     let tmp = std::env::temp_dir().join("neutron-premiere-dark.reg");
-    std::fs::write(&tmp, DARK_REG).map_err(|e| format!("write reg: {e}"))?;
+    std::fs::write(&tmp, reg).map_err(|e| format!("write reg: {e}"))?;
 
     let out = display::clean_command(wine_bin())
         .env("WINEPREFIX", prefix)
@@ -122,4 +126,32 @@ fn which(bin: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::core::theme;
+
+    #[test]
+    fn light_reg_text_is_well_formed() {
+        let txt = theme::reg_text(&theme::light());
+        assert!(txt.starts_with("REGEDIT4"));
+        assert!(txt.contains("[HKEY_CURRENT_USER\\Control Panel\\Colors]"));
+        assert!(txt.contains("\"ActiveTitle\"=\"245 245 245\""));
+        assert!(txt.contains("\"WindowText\"=\"20 20 20\""));
+        // dark and light expose the same keys, so switching is total
+        assert_eq!(theme::dark().keys().collect::<Vec<_>>(),
+                   theme::light().keys().collect::<Vec<_>>());
+    }
+
+    // Live end-to-end: apply the active theme (per ~/.config/collider/config.json) to a
+    // real prefix via the exact production path. Ignored by default; run with:
+    //   COLLIDER_TEST_PREFIX=~/.premiere2025 cargo test live_apply_colors -- --ignored
+    #[test]
+    #[ignore]
+    fn live_apply_colors() {
+        let prefix = std::env::var("COLLIDER_TEST_PREFIX")
+            .expect("set COLLIDER_TEST_PREFIX to a WINEPREFIX");
+        super::apply_prefix_colors(&prefix).expect("apply_prefix_colors failed");
+    }
 }

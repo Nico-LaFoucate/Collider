@@ -48,14 +48,23 @@ export async function currentStep() {
   return await invoke("current_step");
 }
 
-/** Read persisted settings (Preferences). Returns { scale_mode, scale_value }. */
+/** Read persisted settings (Preferences). Returns the full Settings object, incl.
+ *  scale_mode/scale_value, home_window_*, and theme/custom_colors. */
 export async function getSettings() {
   return await invoke("get_settings");
 }
 
-/** Persist settings from the Preferences tab. `settings` = { scale_mode, scale_value }. */
+/** Persist settings from the Preferences tab. `settings` must be the full Settings
+ *  object (scale_*, home_window_*, theme, custom_colors) — omitted fields reset to
+ *  their Rust defaults, so always send the whole thing. */
 export async function setSettings(settings) {
   return await invoke("set_settings", { settings });
+}
+
+/** Built-in decoration themes for the Appearance panel.
+ *  Returns [{ id, label, colors: { "<ColorKey>": "R G B", ... } }, ...]. */
+export async function getThemePresets() {
+  return await invoke("get_theme_presets");
 }
 
 /** Detect the primary monitor's display scale (for the Preferences readout). May be null. */

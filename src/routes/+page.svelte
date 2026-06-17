@@ -1,6 +1,6 @@
 <script>
   import { prefixInfo, doctor, launchPremiere, isPremiereAlive, cleanExit, forceQuit,
-           getSettings, setSettings, detectScale, compositorInfo } from "$lib/api.js";
+           getSettings, setSettings, detectScale, compositorInfo, getThemePresets } from "$lib/api.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onDestroy, onMount } from "svelte";
 
@@ -19,9 +19,89 @@
 
   // --- view switching + Preferences (settings) ---
   let view = $state("apps");                                  // "apps" | "preferences"
-  let settings = $state({ scale_mode: "auto", scale_value: 1.5, home_window_fix: true, home_window_y: 82 });
+  let settings = $state({ scale_mode: "auto", scale_value: 1.5, home_window_fix: true, home_window_y: 82,
+                          theme: "dark", custom_colors: null });
   let detectedScale = $state(null);                           // live primary-monitor scale, for reference
   let compositor = $state(null);                              // { wayland, desktop, home_rule_supported }
+
+  // --- Appearance / decoration theme ---
+  // Theme color groups shown in the Appearance editor. Keys are Control Panel color
+  // names (what the wine frame reads); values live in settings.custom_colors as
+  // "R G B" strings. Close-hover red is hardcoded in the wine patch (not editable).
+  let themePresets = $state([]);            // [{ id, label, colors }] from the backend
+  const COLOR_GROUPS = [
+    { label: "Title bar", keys: [
+      ["ActiveTitle", "Background"], ["TitleText", "Text"], ["InactiveTitle", "Inactive bg"] ] },
+    { label: "Menu bar", keys: [
+      ["MenuBar", "Background"], ["MenuText", "Text"], ["MenuHilight", "Highlight"] ] },
+    { label: "Buttons", keys: [
+      ["ActiveTitle", "Normal bg"], ["ButtonText", "Glyph"],
+      ["ButtonHilight", "Min/Max hover"], ["ButtonShadow", "Pressed"] ] },
+    { label: "Window", keys: [
+      ["Window", "Background"], ["WindowText", "Text"], ["WindowFrame", "Frame edge"] ] },
+  ];
+
+  // "R G B" <-> "#rrggbb" so we can use native <input type=color>.
+  function rgbToHex(rgb) {
+    const p = String(rgb ?? "").trim().split(/\s+/).map(Number);
+    if (p.length !== 3 || p.some((n) => Number.isNaN(n))) return "#000000";
+    return "#" + p.map((n) => Math.max(0, Math.min(255, n)).toString(16).padStart(2, "0")).join("");
+  }
+  function hexToRgb(hex) {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex).trim());
+    if (!m) return "0 0 0";
+    return [1, 2, 3].map((i) => parseInt(m[i], 16)).join(" ");
+  }
+  // Relative luminance (0..1) for the contrast guard.
+  function luminance(rgb) {
+    const [r, g, b] = String(rgb ?? "0 0 0").trim().split(/\s+/).map(Number);
+    const f = (c) => { c = (c || 0) / 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  }
+  function contrastRatio(a, b) {
+    const la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+
+  const dimById = (id) => themePresets.find((p) => p.id === id);
+
+  // The color map currently in effect for the editors: custom overrides merged onto
+  // Dark, or the named preset's colors.
+  function activeColors() {
+    const dark = dimById("dark")?.colors ?? {};
+    if (settings.theme === "custom") return { ...dark, ...(settings.custom_colors ?? {}) };
+    return dimById(settings.theme)?.colors ?? dark;
+  }
+
+  // Switch preset. Choosing "custom" seeds the editable map from whatever's showing.
+  function setTheme(id) {
+    if (id === "custom" && !settings.custom_colors) settings.custom_colors = { ...activeColors() };
+    settings.theme = id;
+    saveSettings();
+  }
+  // Edit one color (auto-switches to custom, seeding from the current colors).
+  function setColor(key, hex) {
+    if (settings.theme !== "custom") {
+      settings.custom_colors = { ...activeColors() };
+      settings.theme = "custom";
+    }
+    settings.custom_colors = { ...settings.custom_colors, [key]: hexToRgb(hex) };
+    saveSettings();
+  }
+  function resetToDark() {
+    settings.theme = "dark";
+    settings.custom_colors = null;
+    saveSettings();
+  }
+  // Title-bar + menu text-on-bg contrast warnings (WCAG-ish; < 4.5 is low).
+  const lowContrast = $derived.by(() => {
+    const c = activeColors();
+    const warns = [];
+    if (contrastRatio(c.TitleText, c.ActiveTitle) < 4.5) warns.push("title bar");
+    if (contrastRatio(c.MenuText, c.MenuBar) < 4.5) warns.push("menu bar");
+    if (contrastRatio(c.ButtonText, c.ActiveTitle) < 3) warns.push("button glyphs");
+    return warns;
+  });
 
   onMount(async () => {
     try { settings = await getSettings(); } catch (_) {}
@@ -32,6 +112,7 @@
     view = "preferences";
     try { detectedScale = await detectScale(); } catch (_) { detectedScale = null; }
     try { compositor = await compositorInfo(); } catch (_) { compositor = null; }
+    try { themePresets = await getThemePresets(); } catch (_) { themePresets = []; }
     if (settings.scale_mode === "manual" && settings.scale_value == null)
       settings.scale_value = detectedScale ?? 1.5;
   }
@@ -46,6 +127,8 @@
         scale_value: settings.scale_value,
         home_window_fix: settings.home_window_fix,
         home_window_y: settings.home_window_y,
+        theme: settings.theme,
+        custom_colors: settings.custom_colors,
       });
     } catch (e) { error = String(e); }
   }
@@ -355,6 +438,54 @@
           </div>
         </div>
 
+        <div class="pref-group">
+          <div class="pref-label">Window decoration theme</div>
+          <div class="pref-desc">
+            Colors for Premiere's title bar, menu bar and window buttons (Neutron draws
+            its own frame). Pick a preset or edit any color to make a custom theme.
+            Applied to the prefix on launch — <b>restart Premiere to see changes</b>.
+          </div>
+          <div class="pref-row">
+            {#each [...themePresets, { id: "custom", label: "Custom" }] as p}
+              <label class="radio">
+                <input type="radio" name="theme" value={p.id}
+                       checked={settings.theme === p.id}
+                       onchange={() => setTheme(p.id)} />
+                {p.label}
+              </label>
+            {/each}
+          </div>
+
+          <div class="theme-editor">
+            {#each COLOR_GROUPS as group}
+              <div class="theme-col">
+                <div class="theme-col-label">{group.label}</div>
+                {#each group.keys as [key, label]}
+                  <label class="swatch-row">
+                    <input type="color" class="swatch"
+                           value={rgbToHex(activeColors()[key])}
+                           oninput={(e) => setColor(key, e.currentTarget.value)} />
+                    <span>{label}</span>
+                  </label>
+                {/each}
+              </div>
+            {/each}
+          </div>
+
+          {#if lowContrast.length}
+            <div class="pref-desc warn">
+              ⚠ Low contrast in the {lowContrast.join(" and ")} — text may be hard to read.
+            </div>
+          {/if}
+
+          <div class="pref-row" style="margin-top:12px;">
+            <button class="ghost-btn" onclick={resetToDark} disabled={settings.theme === "dark"}>
+              Reset to Dark
+            </button>
+            <span class="muted">Close-button hover stays red on every theme (by design).</span>
+          </div>
+        </div>
+
         {#if compositor?.wayland}
         <div class="pref-group">
           <div class="pref-label">Premiere home-screen position (Wayland)</div>
@@ -479,7 +610,7 @@
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
   /* Preferences view */
-  .prefs { padding: 22px; max-width: 560px; }
+  .prefs { padding: 22px; max-width: 560px; display: flex; flex-direction: column; gap: 16px; }
   .pref-group { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 16px 18px; }
   .pref-label { font-size: 14px; font-weight: 600; color: #e8e8ec; margin-bottom: 4px; }
   .pref-desc { font-size: 11.5px; color: rgba(255,255,255,0.45); line-height: 1.5; margin-bottom: 14px; }
@@ -488,4 +619,14 @@
   .radio input { accent-color: #9a5cf5; }
   .muted { color: rgba(255,255,255,0.4); }
   .scale-input { width: 84px; padding: 6px 8px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #e8e8ec; font-size: 12.5px; }
+  /* Appearance / theme editor */
+  .theme-editor { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 22px; margin-top: 14px; }
+  .theme-col-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.35); margin-bottom: 7px; }
+  .swatch-row { display: flex; align-items: center; gap: 9px; font-size: 12px; color: rgba(255,255,255,0.75); margin-bottom: 6px; cursor: pointer; }
+  .swatch { width: 26px; height: 18px; padding: 0; border: 1px solid rgba(255,255,255,0.18); border-radius: 5px; background: none; cursor: pointer; }
+  .swatch::-webkit-color-swatch { border: none; border-radius: 4px; }
+  .swatch::-webkit-color-swatch-wrapper { padding: 0; }
+  .warn { color: #f0b84a; }
+  .ghost-btn { padding: 6px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); color: #e8e8ec; font-size: 12px; cursor: pointer; }
+  .ghost-btn:disabled { opacity: 0.4; cursor: default; }
 </style>
