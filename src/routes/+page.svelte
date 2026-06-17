@@ -1,6 +1,7 @@
 <script>
   import { prefixInfo, doctor, launchPremiere, isPremiereAlive, cleanExit, forceQuit,
-           getSettings, setSettings, detectScale, compositorInfo, getThemePresets } from "$lib/api.js";
+           getSettings, setSettings, detectScale, compositorInfo, getThemePresets, getIconSets,
+           importIconSet } from "$lib/api.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onDestroy, onMount } from "svelte";
 
@@ -20,7 +21,8 @@
   // --- view switching + Preferences (settings) ---
   let view = $state("apps");                                  // "apps" | "preferences"
   let settings = $state({ scale_mode: "auto", scale_value: 1.5, home_window_fix: true, home_window_y: 82,
-                          theme: "dark", custom_colors: null });
+                          theme: "dark", custom_colors: null, button_icon_set: "none" });
+  let iconSets = $state([]);                                  // [{ id, label }] from the backend
   let detectedScale = $state(null);                           // live primary-monitor scale, for reference
   let compositor = $state(null);                              // { wayland, desktop, home_rule_supported }
 
@@ -29,6 +31,7 @@
   // names (what the wine frame reads); values live in settings.custom_colors as
   // "R G B" strings. Close-hover red is hardcoded in the wine patch (not editable).
   let themePresets = $state([]);            // [{ id, label, colors }] from the backend
+  let importing = $state(false);            // caption-icon import in progress
   const COLOR_GROUPS = [
     { label: "Title bar", keys: [
       ["ActiveTitle", "Background"], ["TitleText", "Text"], ["InactiveTitle", "Inactive bg"] ] },
@@ -93,6 +96,24 @@
     settings.custom_colors = null;
     saveSettings();
   }
+
+  // Import a custom button-icon set from a folder of close/min/max/restore images.
+  async function importIcons() {
+    let dir;
+    try {
+      dir = await open({ directory: true,
+                         title: "Choose a folder with close / min / max / restore icons" });
+    } catch (_) { return; }
+    if (!dir) return;
+    importing = true;
+    try {
+      await importIconSet(dir);
+      iconSets = await getIconSets();          // now includes "custom"
+      settings.button_icon_set = "custom";
+      await saveSettings();
+    } catch (e) { error = String(e); }
+    importing = false;
+  }
   // Title-bar + menu text-on-bg contrast warnings (WCAG-ish; < 4.5 is low).
   const lowContrast = $derived.by(() => {
     const c = activeColors();
@@ -113,6 +134,7 @@
     try { detectedScale = await detectScale(); } catch (_) { detectedScale = null; }
     try { compositor = await compositorInfo(); } catch (_) { compositor = null; }
     try { themePresets = await getThemePresets(); } catch (_) { themePresets = []; }
+    try { iconSets = await getIconSets(); } catch (_) { iconSets = []; }
     if (settings.scale_mode === "manual" && settings.scale_value == null)
       settings.scale_value = detectedScale ?? 1.5;
   }
@@ -129,6 +151,7 @@
         home_window_y: settings.home_window_y,
         theme: settings.theme,
         custom_colors: settings.custom_colors,
+        button_icon_set: settings.button_icon_set,
       });
     } catch (e) { error = String(e); }
   }
@@ -478,6 +501,24 @@
             </div>
           {/if}
 
+          <div class="theme-col-label" style="margin-top:18px;">Window buttons (_ □ X)</div>
+          <div class="pref-row">
+            <select class="icon-select" bind:value={settings.button_icon_set} onchange={saveSettings}>
+              {#each iconSets as s}
+                <option value={s.id}>{s.label}</option>
+              {/each}
+            </select>
+            <button class="ghost-btn" onclick={importIcons} disabled={importing}>
+              {importing ? "Importing…" : "Import…"}
+            </button>
+            <span class="muted">Restart Premiere to apply.</span>
+          </div>
+          <div class="pref-desc muted">
+            Choose a bundled style or import your own. Import a folder containing
+            <b>close</b>, <b>min</b>, <b>max</b>, <b>restore</b> images (.png or .ico).
+            The close button still highlights red on hover.
+          </div>
+
           <div class="pref-row" style="margin-top:12px;">
             <button class="ghost-btn" onclick={resetToDark} disabled={settings.theme === "dark"}>
               Reset to Dark
@@ -629,4 +670,5 @@
   .warn { color: #f0b84a; }
   .ghost-btn { padding: 6px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.16); background: rgba(255,255,255,0.05); color: #e8e8ec; font-size: 12px; cursor: pointer; }
   .ghost-btn:disabled { opacity: 0.4; cursor: default; }
+  .icon-select { padding: 6px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #e8e8ec; font-size: 12.5px; min-width: 150px; }
 </style>

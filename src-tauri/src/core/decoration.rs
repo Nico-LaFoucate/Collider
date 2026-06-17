@@ -34,6 +34,8 @@ const KWIN_MAIN_JS: &str = include_str!("../../resources/kwin/main.js");
 pub fn apply(prefix: &str) -> Result<(), String> {
     // Prefix colors are platform-independent (they only theme Wine's own NC).
     apply_prefix_colors(prefix)?;
+    // Custom caption-button icons (or disable them) — also platform-independent.
+    apply_button_icons(prefix)?;
     // The overlay-positioning script is KDE/Wayland-only.
     if supported() {
         install_kwin_script()?;
@@ -57,6 +59,42 @@ fn apply_prefix_colors(prefix: &str) -> Result<(), String> {
     let tmp = std::env::temp_dir().join("neutron-premiere-dark.reg");
     std::fs::write(&tmp, reg).map_err(|e| format!("write reg: {e}"))?;
 
+    let out = display::clean_command(wine_bin())
+        .env("WINEPREFIX", prefix)
+        .env("WINEDEBUG", "-all")
+        .args(["regedit", tmp.to_string_lossy().as_ref()])
+        .output()
+        .map_err(|e| format!("spawn wine regedit: {e}"))?;
+    let _ = std::fs::remove_file(&tmp);
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+// ---- caption-button icons -------------------------------------------------
+
+/// Install the configured caption-icon set into the prefix and point the wine side at
+/// it via HKCU\Software\Neutron\Caption (or disable it for "none"). Best-effort.
+fn apply_button_icons(prefix: &str) -> Result<(), String> {
+    let settings = crate::core::settings::load();
+    let win_dir = crate::core::caption_icons::install(&settings.button_icon_set, prefix)?;
+
+    let reg = match &win_dir {
+        Some(dir) => format!(
+            "REGEDIT4\r\n\r\n[HKEY_CURRENT_USER\\Software\\Neutron\\Caption]\r\n\
+             \"Enabled\"=dword:00000001\r\n\"IconDir\"=\"{}\"\r\n",
+            dir.replace('\\', "\\\\")
+        ),
+        None => String::from(
+            "REGEDIT4\r\n\r\n[HKEY_CURRENT_USER\\Software\\Neutron\\Caption]\r\n\
+             \"Enabled\"=dword:00000000\r\n",
+        ),
+    };
+
+    let tmp = std::env::temp_dir().join("neutron-caption.reg");
+    std::fs::write(&tmp, reg).map_err(|e| format!("write reg: {e}"))?;
     let out = display::clean_command(wine_bin())
         .env("WINEPREFIX", prefix)
         .env("WINEDEBUG", "-all")
@@ -153,5 +191,44 @@ mod tests {
         let prefix = std::env::var("COLLIDER_TEST_PREFIX")
             .expect("set COLLIDER_TEST_PREFIX to a WINEPREFIX");
         super::apply_prefix_colors(&prefix).expect("apply_prefix_colors failed");
+    }
+
+    // Live end-to-end for caption icons: installs the configured button_icon_set into a
+    // real prefix + writes HKCU\Software\Neutron\Caption via the production path.
+    //   COLLIDER_TEST_PREFIX=~/.premiere2025 cargo test live_apply_icons -- --ignored
+    #[test]
+    #[ignore]
+    fn live_apply_icons() {
+        let prefix = std::env::var("COLLIDER_TEST_PREFIX")
+            .expect("set COLLIDER_TEST_PREFIX to a WINEPREFIX");
+        super::apply_button_icons(&prefix).expect("apply_button_icons failed");
+    }
+
+    // Live import smoke test: COLLIDER_TEST_IMPORT_DIR=<folder of close/min/max/restore.png>
+    //   cargo test live_import -- --ignored
+    #[test]
+    #[ignore]
+    fn live_import() {
+        let dir = std::env::var("COLLIDER_TEST_IMPORT_DIR").expect("set COLLIDER_TEST_IMPORT_DIR");
+        let n = crate::core::caption_icons::import_set(&dir).expect("import_set failed");
+        assert!(n > 0);
+        eprintln!("imported {n} buttons");
+    }
+
+    #[test]
+    fn bundled_sets_install_idempotently() {
+        // every bundled id resolves and yields a Windows icon dir (smoke test, no prefix writes)
+        for id in crate::core::caption_icons::SET_IDS {
+            if *id == "none" { continue; }
+            // install into a temp dir
+            let tmp = std::env::temp_dir().join(format!("collider-icontest-{id}"));
+            let p = tmp.to_string_lossy().to_string();
+            let r = crate::core::caption_icons::install(id, &p).expect("install");
+            assert!(r.is_some(), "{id} should enable icons");
+            assert!(std::path::Path::new(&p)
+                .join("drive_c/windows/neutron/caption")
+                .join(id).join("close.ico").exists());
+            let _ = std::fs::remove_dir_all(&tmp);
+        }
     }
 }

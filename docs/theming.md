@@ -89,7 +89,12 @@ user files into the prefix asset dir.
   contrast guard, relaunch hint). **No wine change.** ← *current*
 - **M2** Wine patch: caption buttons routed through the `NtUserDrawNonClientButton`
   callback; current flat default relocated to the user-mode drawer (behavior-identical).
-- **M3** Custom-icon load/blit + asset pipeline + bundled sets + import UI.
+- **M3** ✅ Custom-icon load/blit (neutron-wine, shipped) + Collider asset pipeline:
+  `core/caption_icons.rs` embeds 4 bundled sets (macOS / Windows-11 / minimal / Adobe-flat)
+  and installs the chosen set into the prefix; `decoration::apply` writes
+  `HKCU\Software\Neutron\Caption` (Enabled/IconDir); import converts user PNG/JPG/BMP/ICO →
+  `.ico` (the `image` crate) into `~/.config/collider/caption-custom`; Appearance panel has a
+  set picker + Import button. Verified live (bundled + imported render in Premiere).
 - **M4** Polish: Match-system preset, uninstall/reset, retire `window_rule.rs` (fold
   positioning into the KWin overlay script driven by `home_window_y`), live-apply
   investigation.

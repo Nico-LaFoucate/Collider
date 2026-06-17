@@ -1,0 +1,146 @@
+// core/caption_icons.rs
+//
+// Custom window-button (caption) icon sets for the Neutron CSD frame. The Neutron wine
+// build's user32 draws per-button .ico files over the themed button background when
+// HKCU\Software\Neutron\Caption\Enabled is set (see neutron-wine neutron-caption-buttons).
+// This module ships the bundled sets (embedded in the Collider binary) and installs a
+// chosen set into a prefix: it copies close/min/max/restore.ico into
+// drive_c/windows/neutron/caption/<id>/ and returns the Windows path for the registry.
+//
+// Imported (user) sets live on disk under the Collider config dir (see import_set) and
+// are installed the same way by path rather than from the embedded table.
+
+use std::path::Path;
+
+/// Built-in set ids in display order. "none" = Wine's default Marlett glyphs.
+pub const SET_IDS: &[&str] = &["none", "macos", "win11", "minimal", "adobe-flat"];
+
+/// Human label for a set id (for the Appearance picker).
+pub fn label(id: &str) -> &'static str {
+    match id {
+        "none" => "Default glyphs",
+        "macos" => "macOS",
+        "win11" => "Windows 11",
+        "minimal" => "Minimal",
+        "adobe-flat" => "Adobe flat",
+        "custom" => "Custom (imported)",
+        _ => id_is_unknown(),
+    }
+}
+fn id_is_unknown() -> &'static str { "Custom" }
+
+/// The four button .ico files for a bundled set, embedded at compile time.
+type IconSet = &'static [(&'static str, &'static [u8])];
+
+macro_rules! set {
+    ($dir:literal) => {
+        &[
+            ("close.ico",   include_bytes!(concat!("../../resources/caption-icons/", $dir, "/close.ico")) as &[u8]),
+            ("min.ico",     include_bytes!(concat!("../../resources/caption-icons/", $dir, "/min.ico")) as &[u8]),
+            ("max.ico",     include_bytes!(concat!("../../resources/caption-icons/", $dir, "/max.ico")) as &[u8]),
+            ("restore.ico", include_bytes!(concat!("../../resources/caption-icons/", $dir, "/restore.ico")) as &[u8]),
+        ]
+    };
+}
+
+fn bundled(id: &str) -> Option<IconSet> {
+    match id {
+        "macos" => Some(set!("macos")),
+        "win11" => Some(set!("win11")),
+        "minimal" => Some(set!("minimal")),
+        "adobe-flat" => Some(set!("adobe-flat")),
+        _ => None,
+    }
+}
+
+/// Where a chosen set's icons are placed inside the prefix.
+fn prefix_icon_dir(prefix: &str, id: &str) -> String {
+    format!("{prefix}/drive_c/windows/neutron/caption/{id}")
+}
+
+/// The Windows-side path Wine reads (mirrors prefix_icon_dir).
+fn windows_icon_dir(id: &str) -> String {
+    format!("C:\\windows\\neutron\\caption\\{id}")
+}
+
+/// Install the icon set `id` into `prefix`. Returns:
+///   Ok(Some(windows_dir)) -> custom icons should be enabled, pointing here
+///   Ok(None)              -> "none": custom icons should be disabled
+/// For "custom", icons are copied from the imported-set dir under the Collider config.
+pub fn install(id: &str, prefix: &str) -> Result<Option<String>, String> {
+    if id == "none" || id.is_empty() {
+        return Ok(None);
+    }
+
+    let dest = prefix_icon_dir(prefix, id);
+    std::fs::create_dir_all(&dest).map_err(|e| format!("mkdir {dest}: {e}"))?;
+
+    if let Some(set) = bundled(id) {
+        for (name, bytes) in set {
+            std::fs::write(format!("{dest}/{name}"), bytes)
+                .map_err(|e| format!("write {name}: {e}"))?;
+        }
+    } else if id == "custom" {
+        // Copy whatever .ico files the user imported.
+        let src = custom_set_dir().ok_or("no HOME for custom icons")?;
+        let mut copied = 0;
+        for name in ["close.ico", "min.ico", "max.ico", "restore.ico"] {
+            let from = src.join(name);
+            if from.exists() {
+                std::fs::copy(&from, format!("{dest}/{name}"))
+                    .map_err(|e| format!("copy {name}: {e}"))?;
+                copied += 1;
+            }
+        }
+        if copied == 0 {
+            return Err("no imported icons found".into());
+        }
+    } else {
+        return Err(format!("unknown icon set: {id}"));
+    }
+
+    Ok(Some(windows_icon_dir(id)))
+}
+
+/// Directory where imported custom .ico files are stored (~/.config/collider/caption-custom).
+pub fn custom_set_dir() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+    Some(Path::new(&home).join(".config/collider/caption-custom"))
+}
+
+/// Import a user icon set from `src_dir`: looks for close/min/max/restore as `.ico`
+/// (copied as-is) or a raster image (`.png/.jpg/.jpeg/.bmp`, re-encoded to 64x64 `.ico`),
+/// writing the results into custom_set_dir(). Returns how many buttons were imported.
+/// Errors if the folder has none of the four.
+pub fn import_set(src_dir: &str) -> Result<u32, String> {
+    let dest = custom_set_dir().ok_or("no HOME for custom icons")?;
+    std::fs::create_dir_all(&dest).map_err(|e| format!("mkdir custom dir: {e}"))?;
+
+    let mut found = 0u32;
+    for name in ["close", "min", "max", "restore"] {
+        let out = dest.join(format!("{name}.ico"));
+        let ico = Path::new(src_dir).join(format!("{name}.ico"));
+        if ico.exists() {
+            std::fs::copy(&ico, &out).map_err(|e| format!("copy {name}.ico: {e}"))?;
+            found += 1;
+            continue;
+        }
+        for ext in ["png", "PNG", "jpg", "jpeg", "bmp"] {
+            let p = Path::new(src_dir).join(format!("{name}.{ext}"));
+            if p.exists() {
+                let img = image::open(&p).map_err(|e| format!("decode {name}.{ext}: {e}"))?;
+                img.resize(64, 64, image::imageops::FilterType::Lanczos3)
+                    .save_with_format(&out, image::ImageFormat::Ico)
+                    .map_err(|e| format!("encode {name}.ico: {e}"))?;
+                found += 1;
+                break;
+            }
+        }
+    }
+    if found == 0 {
+        // wipe a possibly-stale partial set so "custom" doesn't linger half-populated
+        let _ = std::fs::remove_file(dest.join("close.ico"));
+        return Err("no close/min/max/restore image (.png/.jpg/.bmp/.ico) found in that folder".into());
+    }
+    Ok(found)
+}

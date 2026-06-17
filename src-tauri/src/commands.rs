@@ -140,3 +140,27 @@ pub fn get_theme_presets() -> Result<Value, String> {
         .collect();
     Ok(Value::Array(presets))
 }
+
+/// Available caption-button icon sets for the Appearance panel: [{ id, label }, ...]
+/// ("none" = Wine's default glyphs; bundled sets; "custom" if the user imported one).
+#[tauri::command]
+pub fn get_icon_sets() -> Result<Value, String> {
+    use crate::core::caption_icons;
+    let mut sets: Vec<Value> = caption_icons::SET_IDS
+        .iter()
+        .map(|id| serde_json::json!({ "id": id, "label": caption_icons::label(id) }))
+        .collect();
+    // Offer "custom" only when the user has imported icons.
+    if caption_icons::custom_set_dir().map(|d| d.join("close.ico").exists()).unwrap_or(false) {
+        sets.push(serde_json::json!({ "id": "custom", "label": caption_icons::label("custom") }));
+    }
+    Ok(Value::Array(sets))
+}
+
+/// Import a custom caption-icon set from a folder containing close/min/max/restore
+/// images (.png/.jpg/.bmp/.ico). Re-encodes to .ico under the Collider config; the
+/// caller then sets button_icon_set = "custom". Returns the number of buttons imported.
+#[tauri::command]
+pub fn import_icon_set(dir: String) -> Result<u32, String> {
+    crate::core::caption_icons::import_set(&dir)
+}

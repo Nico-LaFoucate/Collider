@@ -67,6 +67,18 @@ export async function getThemePresets() {
   return await invoke("get_theme_presets");
 }
 
+/** Caption-button icon sets for the Appearance panel. Returns [{ id, label }, ...]
+ *  ("none" = default glyphs; bundled sets; "custom" only if the user imported one). */
+export async function getIconSets() {
+  return await invoke("get_icon_sets");
+}
+
+/** Import a custom caption-icon set from a folder (close/min/max/restore .png/.ico/...).
+ *  Returns the number of buttons imported. Caller then sets button_icon_set = "custom". */
+export async function importIconSet(dir) {
+  return await invoke("import_icon_set", { dir });
+}
+
 /** Detect the primary monitor's display scale (for the Preferences readout). May be null. */
 export async function detectScale() {
   return await invoke("detect_scale");

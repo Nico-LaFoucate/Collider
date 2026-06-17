@@ -38,11 +38,19 @@ pub struct Settings {
     /// theme == "custom". Missing keys fall back to the Dark preset.
     #[serde(default)]
     pub custom_colors: Option<BTreeMap<String, String>>,
+
+    /// Window-button (caption) icon set: "none" (Wine's default glyphs), a bundled set
+    /// id ("macos" | "win11" | "minimal" | "adobe-flat"), or "custom" (imported). Drives
+    /// HKCU\Software\Neutron\Caption + the per-button .ico files copied into the prefix
+    /// on launch (core/caption_icons.rs + core/decoration.rs). Default "none".
+    #[serde(default = "default_button_icon_set")]
+    pub button_icon_set: String,
 }
 
 fn default_home_window_fix() -> bool { true }
 fn default_home_window_y() -> i32 { 82 }
 fn default_theme() -> String { "dark".into() }
+fn default_button_icon_set() -> String { "none".into() }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -53,6 +61,7 @@ impl Default for Settings {
             home_window_y: default_home_window_y(),
             theme: default_theme(),
             custom_colors: None,
+            button_icon_set: default_button_icon_set(),
         }
     }
 }
