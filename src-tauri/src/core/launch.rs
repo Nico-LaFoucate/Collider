@@ -1,16 +1,14 @@
 // core/launch.rs
 //
-// The MVP launch loop, encoded as an explicit sequence so the UI can show where
-// it is and recover cleanly if a step fails. This is the heart of Collider:
-// everything we did by hand across the Neutron investigation, in order, done right.
-//
-// The sequence (from COLLIDER_INTEGRATION_HANDOFF.md "path-resolution flow"):
-//   1. prefix info        -> read documents_real (the hwmux watch target)
-//   2. apply-display-fix  -> ensure DS.DisableDirectXDisplay (idempotent)
-//   3. launch premiere    -> get the Premiere PID to supervise
-//   4. hwmux start        -> watch documents_real; get the daemon PID
-//   ... Premiere runs ...
-//   5. on Premiere exit   -> hwmux stop
+// The launch loop, generalized to ANY app in the Neutron catalog. Collider keeps
+// one supervised session PER app (several apps can run at once), each with its
+// own status + optional export daemon. The flow:
+//   1. prefix info         -> health gate + documents_real (the export watch target)
+//   2. apply-display-fix   -> ensure DS.DisableDirectXDisplay (idempotent)
+//   2b. decoration         -> dark caption + KWin home-position script (best-effort)
+//   3. neutron launch <app> -> get the PID to supervise
+//   4. (export apps only)  -> hwmux start on the export dir; get the daemon PID
+//   ... app runs ...  5. on exit -> hwmux stop
 //
 // Collider never computes paths: documents_real flows from step 1 into step 4.
 
@@ -18,7 +16,16 @@ use serde::Serialize;
 use crate::core::prefix::PrefixInfo;
 use crate::core::daemon::HwmuxDaemon;
 
+/// Whether an app has a hardware-export pipeline (→ Collider runs the hwmux
+/// daemon while it's up). Mirrors the `export` flag in the CLI's APP_PROFILES;
+/// kept here so a launch doesn't need an extra catalog round-trip.
+pub fn app_has_export(app_id: &str) -> bool {
+    matches!(app_id, "premiere" | "mediaencoder")
+}
+
 /// Where the launch loop is. The UI renders this directly as status.
+/// (Variant/field names are still Premiere-flavored from the MVP; the frontend
+/// maps them to a progress bar. P2 renames them generically when it touches the UI.)
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(tag = "step", content = "detail")]
 pub enum LaunchStep {
@@ -32,34 +39,35 @@ pub enum LaunchStep {
     Stopped,
 }
 
-/// One supervised Premiere session. Holds the PIDs and the daemon handle so the
-/// UI can poll status and so teardown stops the daemon when Premiere exits.
+/// One supervised app session: the app id, its PID, and (for export apps) the
+/// hwmux daemon handle so teardown stops the daemon when the app exits.
 pub struct LaunchSession {
     pub step: LaunchStep,
-    pub premiere_pid: Option<u32>,
+    pub app_id: String,
+    pub pid: Option<u32>,
     daemon: Option<HwmuxDaemon>,
 }
 
 impl LaunchSession {
     pub fn new() -> Self {
-        Self { step: LaunchStep::Idle, premiere_pid: None, daemon: None }
+        Self { step: LaunchStep::Idle, app_id: String::new(), pid: None, daemon: None }
     }
 
-    /// Run the full MVP launch loop for Premiere. Each failure records WHICH step
-    /// failed and the engine's own reason, so the UI can show "close Premiere
-    /// first" (exit 3) rather than a generic error.
-    ///
-    /// `export_dir`: where Premiere's exports actually land, which is what hwmux
-    /// must watch. If None, we default to the prefix's resolved Documents path
-    /// (`documents_real`). A creator who exports elsewhere passes their real
-    /// export folder here so the muxer watches the right place (Brief §4 / §1.2).
-    pub fn launch_premiere(
+    /// Run the launch loop for `app_id`. `has_export` gates the hwmux daemon.
+    /// `export_dir`: where exports land (the daemon's watch target); None => the
+    /// prefix's resolved Documents path (`documents_real`). Each failure records
+    /// WHICH step failed and the engine's own reason so the UI can show it.
+    pub fn launch(
         &mut self,
+        app_id: &str,
         prefix: &str,
         project: Option<&str>,
         export_dir: Option<&str>,
+        has_export: bool,
     ) -> &LaunchStep {
-        // 1. Resolve paths — this is also our prefix health gate (exit 2 = invalid).
+        self.app_id = app_id.to_string();
+
+        // 1. Resolve paths — also the prefix health gate (exit 2 = invalid).
         self.step = LaunchStep::Resolving;
         let info: PrefixInfo = match PrefixInfo::detect(&prefix.into()) {
             Ok(i) if i.valid => i,
@@ -73,62 +81,59 @@ impl LaunchSession {
             return self.fail("display-fix", &e.to_string());
         }
 
-        // 2b. Best-effort: install the Neutron decoration before the window appears
-        //     — the dark title-bar/menu prefix colors and the KWin script that tucks
-        //     the Home overlay below the menu bar. Client-side decorations (the wine
-        //     build default) keep the frame self-contained and overflow-free; this
-        //     just themes + positions it. Purely cosmetic — never block the launch.
-        //     (Supersedes the old window_rule position rule, which the script replaces.)
+        // 2b. Best-effort decoration (dark caption + home-position script). Cosmetic;
+        //     never block a launch on it.
         let _ = crate::core::decoration::apply(prefix);
 
-        // 3. Launch Premiere (GPU only in v0) — get the PID to supervise.
-        //    Resolve the display scale cockpit-side (primary monitor) and pass it;
-        //    the engine turns it into LogPixels. None => engine auto-detects.
-        //    (Layer 3 will let a manual Preferences override win here.)
+        // 3. Launch the app — get the PID to supervise. Scale resolved cockpit-side
+        //    (primary monitor); None => the engine auto-detects.
         self.step = LaunchStep::LaunchingPremiere;
         let scale = crate::core::settings::effective_scale();
-        let result = match crate::neutron::launch_premiere(prefix, project, scale) {
+        let result = match crate::neutron::launch_app(app_id, prefix, project, scale) {
             Ok(r) => r,
             Err(e) => return self.fail("launch", &e.to_string()),
         };
-        let premiere_pid = result.pid;
+        let pid = result.pid;
         let display = result.display;
         let neutron_wine = result.neutron_wine;
-        self.premiere_pid = Some(premiere_pid);
+        self.pid = Some(pid);
 
-        // 4. Start hwmux watching the export dir. Override if the user set one,
-        //    otherwise the resolved Documents path. Either way it's a real
-        //    filesystem path Neutron resolved or the user chose — never a guess.
-        self.step = LaunchStep::StartingDaemon;
-        let watch_dir: std::path::PathBuf = match export_dir {
-            Some(d) => d.into(),
-            None => info.documents_real.clone(),
+        // 4. Export apps (Premiere / Media Encoder): start hwmux watching the export
+        //    dir — the user's override, else the resolved Documents path. Non-export
+        //    apps skip this entirely (daemon_pid = 0).
+        let daemon_pid = if has_export {
+            self.step = LaunchStep::StartingDaemon;
+            let watch_dir: std::path::PathBuf = match export_dir {
+                Some(d) => d.into(),
+                None => info.documents_real.clone(),
+            };
+            let mut daemon = HwmuxDaemon::new(watch_dir);
+            if let Err(e) = daemon.start() {
+                // App is up but the daemon failed — surface it; don't kill the app.
+                return self.fail("daemon", &e.to_string());
+            }
+            let dpid = daemon.pid().unwrap_or(0);
+            self.daemon = Some(daemon);
+            dpid
+        } else {
+            0
         };
-        let mut daemon = HwmuxDaemon::new(watch_dir);
-        if let Err(e) = daemon.start() {
-            // Premiere is up but the daemon failed — surface it, but don't kill
-            // Premiere; exports just won't auto-mux until the daemon is retried.
-            return self.fail("daemon", &e.to_string());
-        }
-        let daemon_pid = daemon.pid().unwrap_or(0);
-        self.daemon = Some(daemon);
 
-        self.step = LaunchStep::Running { premiere_pid, daemon_pid, display, neutron_wine };
+        self.step = LaunchStep::Running { premiere_pid: pid, daemon_pid, display, neutron_wine };
         &self.step
     }
 
-    /// Is the Premiere process still alive? Uses kill(pid, 0) — sends no signal,
-    /// just checks existence. Linux/Unix only (fine: target is CachyOS).
-    /// Returns false if there's no tracked PID.
-    pub fn is_premiere_alive(&self) -> bool {
-        match self.premiere_pid {
+    /// Is the supervised process still alive? kill(pid, 0) — sends no signal, just
+    /// checks existence. Returns false if there's no tracked PID.
+    pub fn is_alive(&self) -> bool {
+        match self.pid {
             Some(pid) => pid_alive(pid),
             None => false,
         }
     }
 
-    /// The auto-detected clean exit: the user closed Premiere normally and the
-    /// frontend's liveness poll noticed. Stop the muxer, make sure Premiere is
+    /// The auto-detected clean exit: the user closed the app normally and the
+    /// frontend's liveness poll noticed. Stop the muxer, make sure the app is
     /// really gone, and reset to Idle so the button returns to "Launch".
     pub fn clean_exit(&mut self) -> &LaunchStep {
         if let Some(d) = self.daemon.as_mut() {
@@ -136,20 +141,20 @@ impl LaunchSession {
         }
         self.daemon = None;
         // Belt-and-suspenders: if the process somehow lingers, signal its group.
-        if let Some(pid) = self.premiere_pid {
+        if let Some(pid) = self.pid {
             if pid_alive(pid) {
                 let _ = kill_group(pid);
             }
         }
-        self.premiere_pid = None;
+        self.pid = None;
         self.step = LaunchStep::Idle;
         &self.step
     }
 
-    /// The manual escape hatch: Premiere is hung and the user picked "Force quit"
-    /// from the Running button. Kill Premiere's process group, then clean up.
+    /// The manual escape hatch: the app is hung and the user picked "Force quit".
+    /// Kill the app's process group, then clean up.
     pub fn force_quit(&mut self) -> &LaunchStep {
-        if let Some(pid) = self.premiere_pid {
+        if let Some(pid) = self.pid {
             let _ = kill_group(pid);
         }
         self.clean_exit()
@@ -167,7 +172,7 @@ fn pid_alive(pid: u32) -> bool {
 }
 
 /// Kill the whole process group (negative PID) with SIGTERM so children — the
-/// Premiere process tree spawned detached via start_new_session — go down too.
+/// app process tree spawned detached via start_new_session — go down too.
 fn kill_group(pid: u32) -> std::io::Result<()> {
     let r = unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGTERM) };
     if r == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }

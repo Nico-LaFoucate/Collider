@@ -16,6 +16,14 @@ pub fn run() {
             commands::prefix_info,
             commands::doctor,
             commands::apply_display_fix,
+            // generic per-app surface (multi-app widgets)
+            commands::list_apps,
+            commands::launch_app,
+            commands::is_app_alive,
+            commands::clean_exit_app,
+            commands::force_quit_app,
+            commands::current_step_app,
+            // premiere-compat (current frontend, until P2)
             commands::launch_premiere,
             commands::is_premiere_alive,
             commands::clean_exit,

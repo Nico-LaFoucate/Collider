@@ -112,18 +112,19 @@ pub struct LaunchResult {
     pub neutron_wine: bool,
 }
 
-/// Launch Premiere (GPU is the only mode in v0) and return its PID so the daemon
-/// lifecycle can be tied to it. `scale` (the primary monitor's display scale,
-/// detected cockpit-side) is passed to the engine, which turns it into the right
-/// LogPixels; omitting it (None) makes the engine auto-detect. We never pass
-/// `--software` — an honest v0 gap that returns exit 4.
-pub fn launch_premiere(
+/// Launch any app in the catalog by id (GPU is the only mode in v0) and return
+/// its PID so the session (and, for export apps, the daemon) can be tied to it.
+/// `scale` (the primary monitor's display scale, detected cockpit-side) is passed
+/// to the engine, which turns it into the right LogPixels; None => engine
+/// auto-detects. We never pass `--software` — an honest v0 gap (exit 4).
+pub fn launch_app(
+    app_id: &str,
     prefix: &str,
     project: Option<&str>,
     scale: Option<f64>,
 ) -> anyhow::Result<LaunchResult> {
     let scale_str: String;
-    let mut args = vec!["launch", "premiere", "--prefix", prefix];
+    let mut args = vec!["launch", app_id, "--prefix", prefix];
     if let Some(p) = project {
         // Project paths are Windows-style inside the prefix, e.g.
         // C:\users\nuck\Documents\test.prproj — Collider passes them through verbatim.
@@ -141,6 +142,13 @@ pub fn launch_premiere(
         display: v.get("display").and_then(|d| d.as_str()).unwrap_or("unknown").to_string(),
         neutron_wine: v.get("neutron_wine").and_then(|n| n.as_bool()).unwrap_or(false),
     })
+}
+
+/// The app catalog + install status for a prefix (`neutron apps`). Returns the
+/// raw JSON object `{ "apps": [ { id, name, accent, export, installed, exe }, … ] }`
+/// that powers Collider's per-app widget grid. Pure detection — launches nothing.
+pub fn apps(prefix: &str) -> anyhow::Result<Value> {
+    run_json(&["apps", "--prefix", prefix])
 }
 
 /// Resolve a prefix's paths. `documents_real` (symlink-resolved) is the value
