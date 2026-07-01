@@ -17,10 +17,11 @@ use crate::core::prefix::PrefixInfo;
 use crate::core::daemon::HwmuxDaemon;
 
 /// Whether an app has a hardware-export pipeline (→ Collider runs the hwmux
-/// daemon while it's up). Mirrors the `export` flag in the CLI's APP_PROFILES;
-/// kept here so a launch doesn't need an extra catalog round-trip.
+/// daemon while it's up). MUST mirror the `export` flag in the CLI's APP_PROFILES
+/// (`bin/neutron`); kept here so a launch doesn't need an extra catalog round-trip.
+/// Keep the two in sync when adding/changing export apps.
 pub fn app_has_export(app_id: &str) -> bool {
-    matches!(app_id, "premiere" | "mediaencoder")
+    matches!(app_id, "premiere" | "mediaencoder" | "aftereffects")
 }
 
 /// Where the launch loop is. The UI renders this directly as status.
