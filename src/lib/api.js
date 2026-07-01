@@ -33,6 +33,40 @@ export async function isPremiereAlive() {
   return await invoke("is_premiere_alive");
 }
 
+// --- Generic per-app surface (multi-app widgets) -------------------------------
+
+/** The app catalog + install status for a prefix.
+ *  Returns { apps: [ { id, name, accent, export, installed, exe }, ... ] }. */
+export async function listApps(prefix) {
+  return await invoke("list_apps", { prefix });
+}
+
+/** Launch an app by id. Returns a LaunchStep ({step, detail}). `exportDir` is only
+ *  meaningful for export apps (Premiere / Media Encoder); null = default. */
+export async function launchApp(appId, prefix, project = null, exportDir = null) {
+  return await invoke("launch_app", { appId, prefix, project, exportDir });
+}
+
+/** Poll whether app `appId` is still running. Called on a timer while Running. */
+export async function isAppAlive(appId) {
+  return await invoke("is_app_alive", { appId });
+}
+
+/** Auto-detected clean exit for `appId` (user closed it). Resets to idle. */
+export async function cleanExitApp(appId) {
+  return await invoke("clean_exit_app", { appId });
+}
+
+/** Manual force-quit for a hung `appId`. */
+export async function forceQuitApp(appId) {
+  return await invoke("force_quit_app", { appId });
+}
+
+/** Poll the current launch step for `appId`. */
+export async function currentStepApp(appId) {
+  return await invoke("current_step_app", { appId });
+}
+
 /** Auto-detected clean exit — user closed Premiere. Stops muxer, resets to idle. */
 export async function cleanExit() {
   return await invoke("clean_exit");
