@@ -86,10 +86,14 @@
 
 <article class="card" style="--acrgb: {acrgb}; --ac: {app.accent};">
   <div class="card-head">
-    <div class="badge">{badge}</div>
+    {#if app.icon}
+      <img class="badge-img" src={app.icon} alt={app.name} />
+    {:else}
+      <div class="badge">{badge}</div>
+    {/if}
     <div class="head-text">
       <div class="app-name">{app.name}</div>
-      <div class="app-ver">GPU</div>
+      <div class="app-ver">{app.version ? `${app.version} · GPU` : "GPU"}</div>
     </div>
     {#if app.export}
       <button class="export-btn" onclick={pickExportDir} disabled={running || busy}
@@ -151,7 +155,15 @@
   .card { border-radius: 14px; padding: 14px; background: linear-gradient(155deg, rgba(var(--acrgb),0.16), #14141aF5); border: 1px solid rgba(255,255,255,0.07); }
   .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
   .head-text { flex: 1; min-width: 0; }
-  .badge { width: 34px; height: 34px; border-radius: 9px; background: rgba(var(--acrgb),0.14); border: 1px solid rgba(var(--acrgb),0.4); display: flex; align-items: center; justify-content: center; color: var(--ac); font-weight: 600; font-size: 14px; }
+  /* Real extracted app logo (lowest-ID exe icon via icoutils); monogram fallback below. */
+  .badge-img { width: 38px; height: 38px; border-radius: 9px; object-fit: contain; flex-shrink: 0; }
+  /* Authentic Adobe CC app-icon look: dark brand-tinted square + glowing brand monogram. */
+  .badge { width: 38px; height: 38px; border-radius: 9px;
+    background: linear-gradient(145deg, rgba(var(--acrgb),0.30), #0d0d12);
+    border: 1px solid rgba(var(--acrgb),0.55);
+    box-shadow: inset 0 0 12px -4px rgba(var(--acrgb),0.55);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ac); font-weight: 700; font-size: 15px; letter-spacing: 0.3px; }
   .app-name { font-size: 14px; font-weight: 600; }
   .app-ver { font-size: 10.5px; color: rgba(255,255,255,0.4); }
   .export-btn { flex-shrink: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); cursor: pointer; }
