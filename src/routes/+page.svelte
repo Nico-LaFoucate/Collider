@@ -1,7 +1,7 @@
 <script>
   import { prefixInfo, doctor, listApps,
            getSettings, setSettings, detectScale, compositorInfo, getThemePresets, getIconSets,
-           importIconSet } from "$lib/api.js";
+           importIconSet, adobeAuthBegin, adobeAuthPoll } from "$lib/api.js";
   import AppCard from "$lib/AppCard.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
@@ -16,7 +16,44 @@
   let refreshing = $state(false); // header Refresh button state
 
   // --- view switching + Preferences (settings) ---
-  let view = $state("apps");                                  // "apps" | "preferences"
+  let view = $state("apps");                                  // "apps" | "mudhut" | "preferences"
+
+  // --- Mud Hut: Adobe sign-in (device/QR flow) ---
+  // phase: idle | starting | waiting | done | expired | error
+  let auth = $state({ phase: "idle", url: null, qr: null,
+                      requestId: null, deviceId: null, status: null, error: null });
+  let authTimer = null;
+
+  async function startSignIn() {
+    if (authTimer) { clearTimeout(authTimer); authTimer = null; }
+    auth = { phase: "starting", url: null, qr: null, requestId: null, deviceId: null, status: null, error: null };
+    try {
+      const b = await adobeAuthBegin();
+      auth = { ...auth, phase: "waiting", url: b.url, qr: b.qr,
+               requestId: b.request_id, deviceId: b.device_id, status: "pending" };
+      pollSignIn();
+    } catch (e) {
+      auth = { ...auth, phase: "error", error: String(e) };
+    }
+  }
+
+  async function pollSignIn() {
+    if (auth.phase !== "waiting") return;
+    try {
+      const r = await adobeAuthPoll(auth.requestId, auth.deviceId);
+      auth = { ...auth, status: r.status };
+      if (r.status === "complete") { auth = { ...auth, phase: "done" }; return; }
+      if (r.status === "expired")  { auth = { ...auth, phase: "expired" }; return; }
+      authTimer = setTimeout(pollSignIn, ((r.retry_interval ?? 5) * 1000));
+    } catch (e) {
+      auth = { ...auth, phase: "error", error: String(e) };
+    }
+  }
+
+  function cancelSignIn() {
+    if (authTimer) { clearTimeout(authTimer); authTimer = null; }
+    auth = { phase: "idle", url: null, qr: null, requestId: null, deviceId: null, status: null, error: null };
+  }
   let settings = $state({ scale_mode: "auto", scale_value: 1.5, home_window_fix: true, home_window_y: 82,
                           theme: "dark", custom_colors: null, button_icon_set: "none" });
   let iconSets = $state([]);                                  // [{ id, label }] from the backend
@@ -186,8 +223,9 @@
       <div class="nav-section">Library</div>
       <div class="nav-item" class:active={view === "apps"} role="button" tabindex="0"
            onclick={() => (view = "apps")}>All apps</div>
-      <div class="nav-item disabled" title="Coming soon">Installed</div>
       <div class="nav-section">Tools</div>
+      <div class="nav-item" class:active={view === "mudhut"} role="button" tabindex="0"
+           onclick={() => (view = "mudhut")}>Mud Hut</div>
       <div class="nav-item disabled" title="Coming soon">Prefixes</div>
       <div class="nav-item" class:active={view === "preferences"} role="button" tabindex="0"
            onclick={openPreferences}>Preferences</div>
@@ -239,6 +277,58 @@
         <div class="empty-apps">No apps detected in this prefix — hit ↻ Refresh.</div>
       {/if}
     </section>
+    </div>
+  {:else if view === "mudhut"}
+    <header>
+      <div>
+        <div class="title">Mud Hut</div>
+        <div class="subtitle">Install Adobe apps · sign in to Adobe to begin</div>
+      </div>
+    </header>
+    <div class="scroll">
+      <section class="mudhut">
+        {#if auth.phase === "idle"}
+          <div class="signin-card">
+            <div class="signin-h">Sign in to Adobe</div>
+            <div class="signin-d">
+              Downloading from Adobe needs your Adobe account. We'll show a QR code and a
+              link — sign in on your phone or in a browser, and this screen updates on its own.
+            </div>
+            <button class="primary" onclick={startSignIn}>Sign in to Adobe</button>
+          </div>
+        {:else if auth.phase === "starting"}
+          <div class="signin-card"><div class="signin-d">Getting a sign-in link…</div></div>
+        {:else if auth.phase === "waiting"}
+          <div class="signin-card">
+            <div class="signin-h">Scan or open to sign in</div>
+            {#if auth.qr}
+              <img class="qr" alt="Adobe sign-in QR code" src={"data:image/png;base64," + auth.qr} />
+            {/if}
+            <div class="signin-link">
+              <input readonly value={auth.url} />
+              <button class="ghost" onclick={() => navigator.clipboard.writeText(auth.url)}>Copy link</button>
+            </div>
+            <div class="signin-status"><span class="dot pending"></span> Waiting for you to sign in…</div>
+            <button class="ghost" onclick={cancelSignIn}>Cancel</button>
+          </div>
+        {:else if auth.phase === "done"}
+          <div class="signin-card">
+            <div class="signin-h">✓ Signed in to Adobe</div>
+            <div class="signin-d">You're connected. (Install flow is coming next.)</div>
+            <button class="ghost" onclick={cancelSignIn}>Done</button>
+          </div>
+        {:else if auth.phase === "expired"}
+          <div class="signin-card">
+            <div class="signin-d">The sign-in request expired. Please try again.</div>
+            <button class="primary" onclick={startSignIn}>Try again</button>
+          </div>
+        {:else if auth.phase === "error"}
+          <div class="signin-card">
+            <div class="banner err">{auth.error}</div>
+            <button class="primary" onclick={startSignIn}>Try again</button>
+          </div>
+        {/if}
+      </section>
     </div>
   {:else if view === "preferences"}
     <header>
@@ -469,4 +559,21 @@
   .icon-thumb { height: 22px; width: auto; border-radius: 4px; background: #2b2b2b; image-rendering: auto; }
   .icon-thumb.placeholder { display: flex; align-items: center; justify-content: center; width: 66px; height: 22px; font-size: 12px; color: rgba(255,255,255,0.55); letter-spacing: 1px; }
   .icon-card-label { font-size: 11px; text-align: center; line-height: 1.2; }
+
+  /* Mud Hut — Adobe sign-in */
+  .mudhut { padding: 22px; }
+  .signin-card { max-width: 420px; margin: 8px auto; padding: 24px; border-radius: 12px;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+  .signin-h { font-size: 15px; font-weight: 600; color: #f0f0f2; }
+  .signin-d { font-size: 12.5px; color: rgba(255,255,255,0.6); line-height: 1.5; }
+  .qr { width: 180px; height: 180px; border-radius: 10px; background: #fff; padding: 8px; }
+  .signin-link { display: flex; gap: 8px; width: 100%; }
+  .signin-link input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.25); color: #cfcfd4; font-size: 12px; }
+  .signin-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: rgba(255,255,255,0.7); }
+  .dot.pending { background: #e0b23c; }
+  .primary { padding: 9px 18px; border-radius: 9px; border: 1px solid rgba(49,168,255,0.4);
+    background: rgba(49,168,255,0.16); color: #8fd0ff; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .primary:hover { background: rgba(49,168,255,0.24); }
 </style>

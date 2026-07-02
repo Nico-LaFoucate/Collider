@@ -227,3 +227,22 @@ pub fn get_icon_sets() -> Result<Value, String> {
 pub fn import_icon_set(dir: String) -> Result<u32, String> {
     crate::core::caption_icons::import_set(&dir)
 }
+
+// ---------------------------------------------------------------------------
+// Mud Hut installer — Adobe sign-in (device/QR flow, driven via `mudhut auth`).
+// begin() once to mint the QR+link, then the frontend polls poll() every few
+// seconds until status == "complete" (same pattern as the launch/current_step).
+// ---------------------------------------------------------------------------
+
+/// Begin Adobe sign-in: returns { url, qr, request_id, device_id }.
+#[tauri::command]
+pub fn adobe_auth_begin() -> Result<Value, String> {
+    crate::mudhut::auth_begin().map_err(estr)
+}
+
+/// Poll the sign-in once: returns { status: pending|complete|expired,
+/// retry_interval, exchange? }.
+#[tauri::command]
+pub fn adobe_auth_poll(request_id: String, device_id: String) -> Result<Value, String> {
+    crate::mudhut::auth_poll(&request_id, &device_id).map_err(estr)
+}

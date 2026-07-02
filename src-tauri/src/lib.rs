@@ -2,6 +2,7 @@
 
 mod core;
 mod neutron;
+mod mudhut;
 mod commands;
 
 use commands::AppState;
@@ -36,6 +37,9 @@ pub fn run() {
             commands::get_theme_presets,
             commands::get_icon_sets,
             commands::import_icon_set,
+            // Mud Hut installer — Adobe sign-in (device/QR flow)
+            commands::adobe_auth_begin,
+            commands::adobe_auth_poll,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Collider");

@@ -123,3 +123,18 @@ export async function detectScale() {
 export async function compositorInfo() {
   return await invoke("compositor_info");
 }
+
+// --- Mud Hut installer: Adobe sign-in (device/QR flow) -------------------------
+
+/** Begin Adobe sign-in. Returns { url, qr, request_id, device_id }.
+ *  `qr` is base64 PNG (prefix with "data:image/png;base64,"). */
+export async function adobeAuthBegin() {
+  return await invoke("adobe_auth_begin");
+}
+
+/** Poll the sign-in once. Returns { status: "pending"|"complete"|"expired",
+ *  retry_interval, exchange? }. Frontend calls this every retry_interval seconds
+ *  until status !== "pending". */
+export async function adobeAuthPoll(requestId, deviceId) {
+  return await invoke("adobe_auth_poll", { requestId, deviceId });
+}
