@@ -18,11 +18,19 @@
   // --- view switching + Preferences (settings) ---
   let view = $state("apps");                                  // "apps" | "mudhut" | "preferences"
 
-  // --- Mud Hut: Adobe sign-in (device/QR flow) ---
+  // --- Mud Hut installer ---
+  // Which install method the user picked in the Mud Hut tab. null = show the menu.
+  // "windows" (copy) and "offline" need NO Adobe sign-in; only "download" does.
+  let mhMethod = $state(null);   // null | "windows" | "offline" | "download"
+
+  // Adobe sign-in (device/QR flow) — only used by the "download" method.
   // phase: idle | starting | waiting | done | expired | error
   let auth = $state({ phase: "idle", url: null, qr: null,
                       requestId: null, deviceId: null, status: null, error: null });
   let authTimer = null;
+
+  function openMudHut() { view = "mudhut"; mhMethod = null; cancelSignIn(); }
+  function backToMethods() { cancelSignIn(); mhMethod = null; }
 
   async function startSignIn() {
     if (authTimer) { clearTimeout(authTimer); authTimer = null; }
@@ -225,7 +233,7 @@
            onclick={() => (view = "apps")}>All apps</div>
       <div class="nav-section">Tools</div>
       <div class="nav-item" class:active={view === "mudhut"} role="button" tabindex="0"
-           onclick={() => (view = "mudhut")}>Mud Hut</div>
+           onclick={openMudHut}>Mud Hut</div>
       <div class="nav-item disabled" title="Coming soon">Prefixes</div>
       <div class="nav-item" class:active={view === "preferences"} role="button" tabindex="0"
            onclick={openPreferences}>Preferences</div>
@@ -282,53 +290,91 @@
     <header>
       <div>
         <div class="title">Mud Hut</div>
-        <div class="subtitle">Install Adobe apps · sign in to Adobe to begin</div>
+        <div class="subtitle">
+          {#if mhMethod === null}Install Adobe apps · choose how to install
+          {:else if mhMethod === "download"}Download from Adobe
+          {:else if mhMethod === "windows"}Copy from a Windows install
+          {:else}Install from an offline package{/if}
+        </div>
       </div>
     </header>
     <div class="scroll">
-      <section class="mudhut">
-        {#if auth.phase === "idle"}
+      {#if mhMethod === null}
+        <!-- Method picker. Copy + Offline need NO Adobe sign-in; only Download does. -->
+        <section class="mh-methods">
+          <button class="method-card" onclick={() => (mhMethod = "windows")}>
+            <div class="method-h">Copy from an existing Windows install</div>
+            <div class="method-d">Point Mud Hut at a licensed Windows Adobe install and copy it in. <b>No Adobe sign-in needed.</b></div>
+          </button>
+          <button class="method-card" onclick={() => (mhMethod = "offline")}>
+            <div class="method-h">Install from an offline package</div>
+            <div class="method-d">Use a pre-downloaded Adobe offline installer / package. <b>No Adobe sign-in needed.</b></div>
+          </button>
+          <button class="method-card" onclick={() => (mhMethod = "download")}>
+            <div class="method-h">Download from Adobe</div>
+            <div class="method-d">Fetch the app straight from Adobe. Requires signing in to your Adobe account.</div>
+          </button>
+        </section>
+      {:else if mhMethod === "download"}
+        <section class="mudhut">
+          <button class="link-back" onclick={backToMethods}>← Back to install options</button>
+          {#if auth.phase === "idle"}
+            <div class="signin-card">
+              <div class="signin-h">Sign in to Adobe</div>
+              <div class="signin-d">
+                We'll show a QR code and a link — sign in on your phone or in a browser, and this
+                screen updates on its own. Prefer not to sign in? Go back and choose copy or offline.
+              </div>
+              <button class="primary" onclick={startSignIn}>Sign in to Adobe</button>
+            </div>
+          {:else if auth.phase === "starting"}
+            <div class="signin-card"><div class="signin-d">Getting a sign-in link…</div></div>
+          {:else if auth.phase === "waiting"}
+            <div class="signin-card">
+              <div class="signin-h">Scan or open to sign in</div>
+              {#if auth.qr}
+                <img class="qr" alt="Adobe sign-in QR code" src={"data:image/png;base64," + auth.qr} />
+              {/if}
+              <div class="signin-link">
+                <input readonly value={auth.url} />
+                <button class="ghost" onclick={() => navigator.clipboard.writeText(auth.url)}>Copy link</button>
+              </div>
+              <div class="signin-status"><span class="dot pending"></span> Waiting for you to sign in…</div>
+              <button class="ghost" onclick={cancelSignIn}>Cancel</button>
+            </div>
+          {:else if auth.phase === "done"}
+            <div class="signin-card">
+              <div class="signin-h">✓ Signed in to Adobe</div>
+              <div class="signin-d">You're connected. Choosing which apps to download is the next step (coming soon).</div>
+              <button class="ghost" onclick={cancelSignIn}>Done</button>
+            </div>
+          {:else if auth.phase === "expired"}
+            <div class="signin-card">
+              <div class="signin-d">The sign-in request expired. Please try again.</div>
+              <button class="primary" onclick={startSignIn}>Try again</button>
+            </div>
+          {:else if auth.phase === "error"}
+            <div class="signin-card">
+              <div class="banner err">{auth.error}</div>
+              <button class="primary" onclick={startSignIn}>Try again</button>
+            </div>
+          {/if}
+        </section>
+      {:else}
+        <!-- windows / offline — no sign-in; the app-picker + install UI is the next milestone. -->
+        <section class="mudhut">
+          <button class="link-back" onclick={backToMethods}>← Back to install options</button>
           <div class="signin-card">
-            <div class="signin-h">Sign in to Adobe</div>
+            <div class="signin-h">
+              {mhMethod === "windows" ? "Copy from a Windows install" : "Install from an offline package"}
+            </div>
             <div class="signin-d">
-              Downloading from Adobe needs your Adobe account. We'll show a QR code and a
-              link — sign in on your phone or in a browser, and this screen updates on its own.
+              No Adobe sign-in required for this method. The app picker and install progress
+              screen are the next thing being built.
             </div>
-            <button class="primary" onclick={startSignIn}>Sign in to Adobe</button>
           </div>
-        {:else if auth.phase === "starting"}
-          <div class="signin-card"><div class="signin-d">Getting a sign-in link…</div></div>
-        {:else if auth.phase === "waiting"}
-          <div class="signin-card">
-            <div class="signin-h">Scan or open to sign in</div>
-            {#if auth.qr}
-              <img class="qr" alt="Adobe sign-in QR code" src={"data:image/png;base64," + auth.qr} />
-            {/if}
-            <div class="signin-link">
-              <input readonly value={auth.url} />
-              <button class="ghost" onclick={() => navigator.clipboard.writeText(auth.url)}>Copy link</button>
-            </div>
-            <div class="signin-status"><span class="dot pending"></span> Waiting for you to sign in…</div>
-            <button class="ghost" onclick={cancelSignIn}>Cancel</button>
-          </div>
-        {:else if auth.phase === "done"}
-          <div class="signin-card">
-            <div class="signin-h">✓ Signed in to Adobe</div>
-            <div class="signin-d">You're connected. (Install flow is coming next.)</div>
-            <button class="ghost" onclick={cancelSignIn}>Done</button>
-          </div>
-        {:else if auth.phase === "expired"}
-          <div class="signin-card">
-            <div class="signin-d">The sign-in request expired. Please try again.</div>
-            <button class="primary" onclick={startSignIn}>Try again</button>
-          </div>
-        {:else if auth.phase === "error"}
-          <div class="signin-card">
-            <div class="banner err">{auth.error}</div>
-            <button class="primary" onclick={startSignIn}>Try again</button>
-          </div>
-        {/if}
-      </section>
+        </section>
+      {/if}
     </div>
   {:else if view === "preferences"}
     <header>
@@ -559,6 +605,19 @@
   .icon-thumb { height: 22px; width: auto; border-radius: 4px; background: #2b2b2b; image-rendering: auto; }
   .icon-thumb.placeholder { display: flex; align-items: center; justify-content: center; width: 66px; height: 22px; font-size: 12px; color: rgba(255,255,255,0.55); letter-spacing: 1px; }
   .icon-card-label { font-size: 11px; text-align: center; line-height: 1.2; }
+
+  /* Mud Hut — install method picker */
+  .mh-methods { padding: 22px; display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
+  .method-card { text-align: left; padding: 16px 18px; border-radius: 12px; cursor: pointer;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: inherit;
+    display: flex; flex-direction: column; gap: 5px; transition: background 0.12s, border-color 0.12s; }
+  .method-card:hover { background: rgba(255,255,255,0.06); border-color: rgba(49,168,255,0.4); }
+  .method-h { font-size: 14px; font-weight: 600; color: #f0f0f2; }
+  .method-d { font-size: 12.5px; color: rgba(255,255,255,0.6); line-height: 1.5; }
+  .method-d b { color: #8fd0ff; font-weight: 600; }
+  .link-back { align-self: flex-start; margin: 4px 0 14px; background: none; border: none;
+    color: rgba(255,255,255,0.6); font-size: 12.5px; cursor: pointer; padding: 0; }
+  .link-back:hover { color: #cfcfd4; }
 
   /* Mud Hut — Adobe sign-in */
   .mudhut { padding: 22px; }
