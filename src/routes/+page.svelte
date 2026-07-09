@@ -348,87 +348,55 @@
             <div class="method-h">Install from an offline package</div>
             <div class="method-d">Use a pre-downloaded Adobe offline installer / package. <b>No Adobe sign-in needed.</b></div>
           </button>
-          <button class="method-card" onclick={() => (mhMethod = "download")}>
+          <button class="method-card" onclick={() => { mhMethod = "download"; loadCatalog(); }}>
             <div class="method-h">Download from Adobe</div>
-            <div class="method-d">Fetch the app straight from Adobe. Requires signing in to your Adobe account.</div>
+            <div class="method-d">Fetch genuine app files straight from Adobe. <b>No sign-in to install</b> — you activate once on first launch, inside the app.</div>
           </button>
         </section>
       {:else if mhMethod === "download"}
+        <!-- No sign-in gate: the feed + CDN are public and HDPIM decrypts without
+             entitlement, so install is auth-free. Licensing is a one-time sign-in
+             INSIDE the app on first launch (NGL writes opm.db itself) — not here. -->
         <section class="mudhut">
           <button class="link-back" onclick={backToMethods}>← Back to install options</button>
-          {#if auth.phase === "idle"}
+          {#if mhInstall.phase === "installing"}
             <div class="signin-card">
-              <div class="signin-h">Sign in to Adobe</div>
-              <div class="signin-d">
-                We'll show a QR code and a link — sign in on your phone or in a browser, and this
-                screen updates on its own. Prefer not to sign in? Go back and choose copy or offline.
-              </div>
-              <button class="primary" onclick={startSignIn}>Sign in to Adobe</button>
+              <div class="signin-h">Installing {mhInstall.name}…</div>
+              <div class="install-stage">{mhInstall.stage || "starting"}</div>
+              <div class="progress"><div class="bar" style="width: {mhInstall.pct}%"></div></div>
+              <div class="install-msg">{mhInstall.msg}</div>
+              <div class="signin-d">Downloading + installing genuine {mhInstall.name} from Adobe. This takes a while — safe to leave running.</div>
             </div>
-          {:else if auth.phase === "starting"}
-            <div class="signin-card"><div class="signin-d">Getting a sign-in link…</div></div>
-          {:else if auth.phase === "waiting"}
+          {:else if mhInstall.phase === "done"}
             <div class="signin-card">
-              <div class="signin-h">Scan or open to sign in</div>
-              {#if auth.qr}
-                <img class="qr" alt="Adobe sign-in QR code" src={"data:image/png;base64," + auth.qr} />
-              {/if}
-              <div class="signin-link">
-                <input readonly value={auth.url} />
-                <button class="ghost" onclick={() => navigator.clipboard.writeText(auth.url)}>Copy link</button>
-              </div>
-              <div class="signin-status"><span class="dot pending"></span> Waiting for you to sign in…</div>
-              <button class="ghost" onclick={cancelSignIn}>Cancel</button>
+              <div class="signin-h">✓ {mhInstall.name} installed</div>
+              <div class="signin-d">Installed into {mhTarget}. It now appears in <b>Apps</b> — launch it there and sign in once, inside the app, to finish Adobe activation (licensing).</div>
+              <button class="primary" onclick={() => { view = "apps"; }}>Go to Apps</button>
+              <button class="ghost" onclick={resetInstall}>Install another</button>
             </div>
-          {:else if auth.phase === "done"}
-            {#if mhInstall.phase === "installing"}
-              <div class="signin-card">
-                <div class="signin-h">Installing {mhInstall.name}…</div>
-                <div class="install-stage">{mhInstall.stage || "starting"}</div>
-                <div class="progress"><div class="bar" style="width: {mhInstall.pct}%"></div></div>
-                <div class="install-msg">{mhInstall.msg}</div>
-                <div class="signin-d">Downloading + installing genuine {mhInstall.name} from Adobe. This takes a while — safe to leave running.</div>
-              </div>
-            {:else if mhInstall.phase === "done"}
-              <div class="signin-card">
-                <div class="signin-h">✓ {mhInstall.name} installed</div>
-                <div class="signin-d">Installed into {mhTarget}. It now appears in <b>Apps</b> — launch it there to finish the one-time Adobe activation.</div>
-                <button class="primary" onclick={() => { view = "apps"; }}>Go to Apps</button>
-                <button class="ghost" onclick={resetInstall}>Install another</button>
-              </div>
-            {:else if mhInstall.phase === "error"}
-              <div class="signin-card">
-                <div class="banner err">{mhInstall.error}</div>
-                <button class="primary" onclick={resetInstall}>Back to apps</button>
-              </div>
-            {:else}
-              <div class="signin-card">
-                <div class="signin-h">✓ Signed in — choose an app to install</div>
-                <div class="mh-target">
-                  <label>Install into</label>
-                  <input bind:value={mhTarget} spellcheck="false" />
-                </div>
-                <div class="mh-applist">
-                  {#each mhCatalog as a}
-                    <button class="mh-app" onclick={() => startInstall(a)}>
-                      <span class="mh-app-badge">{a.sap}</span>
-                      <span class="mh-app-name">{a.name}</span>
-                      <span class="mh-app-go">Install →</span>
-                    </button>
-                  {/each}
-                  {#if mhCatalog.length === 0}<div class="signin-d">Loading catalog…</div>{/if}
-                </div>
-              </div>
-            {/if}
-          {:else if auth.phase === "expired"}
+          {:else if mhInstall.phase === "error"}
             <div class="signin-card">
-              <div class="signin-d">The sign-in request expired. Please try again.</div>
-              <button class="primary" onclick={startSignIn}>Try again</button>
+              <div class="banner err">{mhInstall.error}</div>
+              <button class="primary" onclick={resetInstall}>Back to apps</button>
             </div>
-          {:else if auth.phase === "error"}
+          {:else}
             <div class="signin-card">
-              <div class="banner err">{auth.error}</div>
-              <button class="primary" onclick={startSignIn}>Try again</button>
+              <div class="signin-h">Choose an app to install</div>
+              <div class="signin-d">Genuine Adobe files download straight from Adobe — no sign-in needed to install. You activate (sign in) once on first launch, inside the app.</div>
+              <div class="mh-target">
+                <label>Install into</label>
+                <input bind:value={mhTarget} spellcheck="false" />
+              </div>
+              <div class="mh-applist">
+                {#each mhCatalog as a}
+                  <button class="mh-app" onclick={() => startInstall(a)}>
+                    <span class="mh-app-badge">{a.sap}</span>
+                    <span class="mh-app-name">{a.name}</span>
+                    <span class="mh-app-go">Install →</span>
+                  </button>
+                {/each}
+                {#if mhCatalog.length === 0}<div class="signin-d">Loading catalog…</div>{/if}
+              </div>
             </div>
           {/if}
         </section>
@@ -698,12 +666,6 @@
     display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
   .signin-h { font-size: 15px; font-weight: 600; color: #f0f0f2; }
   .signin-d { font-size: 12.5px; color: rgba(255,255,255,0.6); line-height: 1.5; }
-  .qr { width: 180px; height: 180px; border-radius: 10px; background: #fff; padding: 8px; }
-  .signin-link { display: flex; gap: 8px; width: 100%; }
-  .signin-link input { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.25); color: #cfcfd4; font-size: 12px; }
-  .signin-status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: rgba(255,255,255,0.7); }
-  .dot.pending { background: #e0b23c; }
   .primary { padding: 9px 18px; border-radius: 9px; border: 1px solid rgba(49,168,255,0.4);
     background: rgba(49,168,255,0.16); color: #8fd0ff; font-size: 13px; font-weight: 600; cursor: pointer; }
   .primary:hover { background: rgba(49,168,255,0.24); }
