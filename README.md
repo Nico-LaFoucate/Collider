@@ -64,6 +64,7 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 
 ### Compatibility
 
+- Per-app fix manager — enable/disable tweaks per app with cascading defaults, Steam/Lutris-style (see [docs/ROADMAP.md](docs/ROADMAP.md))
 - DLL override manager with per-DLL status indicators
 - Wine version switcher
 - Plain-English compatibility check on first launch

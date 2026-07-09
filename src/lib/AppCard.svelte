@@ -152,6 +152,7 @@
 <style>
   /* Copied verbatim from the original Premiere card, with the hardcoded purple
      (rgba(154,92,245,…) / #9a5cf5 / #c9a4ff) replaced by the per-app --acrgb/--ac. */
+  /* touch to force HMR CSS re-injection on cold tauri-dev start (dev-only bug) */
   .card { border-radius: 14px; padding: 14px; background: linear-gradient(155deg, rgba(var(--acrgb),0.16), #14141aF5); border: 1px solid color-mix(in srgb, rgb(var(--acrgb)) 30%, #000); }
   .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
   .head-text { flex: 1; min-width: 0; }
