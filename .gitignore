@@ -4,3 +4,5 @@ node_modules/
 /src-tauri/target/
 /src-tauri/gen/
 *.log
+
+src-tauri/vkd3d-proton.cache*

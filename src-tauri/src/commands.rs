@@ -8,19 +8,32 @@
 // Shared mutable state (the active launch session) lives behind a Mutex in
 // Tauri's managed state so multiple IPC calls don't race.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 use serde_json::Value;
-use crate::core::launch::{LaunchSession, LaunchStep};
+use crate::core::launch::{app_has_export, LaunchSession, LaunchStep};
 use crate::core::settings::Settings;
 
-/// App-wide state Tauri manages and injects into commands.
+/// App-wide state Tauri manages and injects into commands. One supervised launch
+/// session PER app id (several apps can run at once), created on demand.
 #[derive(Default)]
 pub struct AppState {
-    pub session: Mutex<LaunchSession>,
+    pub sessions: Mutex<HashMap<String, LaunchSession>>,
 }
 
 /// Convert any error into a string the frontend can display.
 fn estr<E: std::fmt::Display>(e: E) -> String { e.to_string() }
+
+/// Run a closure against the (created-on-demand) session for `app_id`.
+fn with_session<R>(
+    state: &tauri::State<AppState>,
+    app_id: &str,
+    f: impl FnOnce(&mut LaunchSession) -> R,
+) -> Result<R, String> {
+    let mut map = state.sessions.lock().map_err(|_| "session lock poisoned")?;
+    let s = map.entry(app_id.to_string()).or_insert_with(LaunchSession::new);
+    Ok(f(s))
+}
 
 #[tauri::command]
 pub fn prefix_info(prefix: String) -> Result<Value, String> {
@@ -37,8 +50,62 @@ pub fn apply_display_fix(prefix: String) -> Result<Value, String> {
     crate::neutron::apply_display_fix(&prefix).map_err(estr)
 }
 
-/// Run the full MVP launch loop. Returns the resulting LaunchStep so the UI can
-/// render exactly where it landed (Running, or Failed with the step + reason).
+// ---------------------------------------------------------------------------
+// Generic per-app launch surface — Collider's multi-app widgets call these.
+// ---------------------------------------------------------------------------
+
+/// The app catalog + install status for a prefix — powers the per-app widgets.
+#[tauri::command]
+pub fn list_apps(prefix: String) -> Result<Value, String> {
+    crate::neutron::apps(&prefix).map_err(estr)
+}
+
+/// Run the launch loop for `app_id`. Returns the resulting LaunchStep so the UI
+/// can render exactly where it landed (Running, or Failed with the step + reason).
+#[tauri::command]
+pub fn launch_app(
+    state: tauri::State<AppState>,
+    app_id: String,
+    prefix: String,
+    project: Option<String>,
+    export_dir: Option<String>,
+) -> Result<LaunchStep, String> {
+    let has_export = app_has_export(&app_id);
+    with_session(&state, &app_id, |s| {
+        s.launch(&app_id, &prefix, project.as_deref(), export_dir.as_deref(), has_export)
+            .clone()
+    })
+}
+
+/// Poll whether `app_id` is still alive (a single kill(pid,0) syscall).
+#[tauri::command]
+pub fn is_app_alive(state: tauri::State<AppState>, app_id: String) -> Result<bool, String> {
+    with_session(&state, &app_id, |s| s.is_alive())
+}
+
+/// Auto-detected clean exit for `app_id` — the user closed it normally.
+#[tauri::command]
+pub fn clean_exit_app(state: tauri::State<AppState>, app_id: String) -> Result<LaunchStep, String> {
+    with_session(&state, &app_id, |s| s.clean_exit().clone())
+}
+
+/// Manual "Force quit" for a hung `app_id`.
+#[tauri::command]
+pub fn force_quit_app(state: tauri::State<AppState>, app_id: String) -> Result<LaunchStep, String> {
+    with_session(&state, &app_id, |s| s.force_quit().clone())
+}
+
+/// Poll the current launch step for `app_id`.
+#[tauri::command]
+pub fn current_step_app(state: tauri::State<AppState>, app_id: String) -> Result<LaunchStep, String> {
+    with_session(&state, &app_id, |s| s.step.clone())
+}
+
+// ---------------------------------------------------------------------------
+// Premiere-compat wrappers — the current frontend calls these (no app id) until
+// P2 switches to the generic surface. Thin delegates to the "premiere" session.
+// ---------------------------------------------------------------------------
+
 #[tauri::command]
 pub fn launch_premiere(
     state: tauri::State<AppState>,
@@ -46,42 +113,31 @@ pub fn launch_premiere(
     project: Option<String>,
     export_dir: Option<String>,
 ) -> Result<LaunchStep, String> {
-    let mut session = state.session.lock().map_err(|_| "session lock poisoned")?;
-    let step = session
-        .launch_premiere(&prefix, project.as_deref(), export_dir.as_deref())
-        .clone();
-    Ok(step)
+    let has_export = app_has_export("premiere");
+    with_session(&state, "premiere", |s| {
+        s.launch("premiere", &prefix, project.as_deref(), export_dir.as_deref(), has_export)
+            .clone()
+    })
 }
 
-/// Poll whether Premiere is still alive. The frontend calls this on a timer
-/// while in the Running state; when it returns false, the frontend calls
-/// clean_exit. Cheap (a single kill(pid,0) syscall).
 #[tauri::command]
 pub fn is_premiere_alive(state: tauri::State<AppState>) -> Result<bool, String> {
-    let session = state.session.lock().map_err(|_| "session lock poisoned")?;
-    Ok(session.is_premiere_alive())
+    with_session(&state, "premiere", |s| s.is_alive())
 }
 
-/// Auto-detected clean exit — user closed Premiere normally. Stops the muxer,
-/// ensures Premiere is gone, resets to Idle (button returns to "Launch").
 #[tauri::command]
 pub fn clean_exit(state: tauri::State<AppState>) -> Result<LaunchStep, String> {
-    let mut session = state.session.lock().map_err(|_| "session lock poisoned")?;
-    Ok(session.clean_exit().clone())
+    with_session(&state, "premiere", |s| s.clean_exit().clone())
 }
 
-/// Manual escape hatch — "Force quit" from the Running button when Premiere hangs.
 #[tauri::command]
 pub fn force_quit(state: tauri::State<AppState>) -> Result<LaunchStep, String> {
-    let mut session = state.session.lock().map_err(|_| "session lock poisoned")?;
-    Ok(session.force_quit().clone())
+    with_session(&state, "premiere", |s| s.force_quit().clone())
 }
 
-/// Poll the current launch step (for the UI's status surface).
 #[tauri::command]
 pub fn current_step(state: tauri::State<AppState>) -> Result<LaunchStep, String> {
-    let session = state.session.lock().map_err(|_| "session lock poisoned")?;
-    Ok(session.step.clone())
+    with_session(&state, "premiere", |s| s.step.clone())
 }
 
 /// Read persisted settings (Preferences). Defaults if no file yet.
@@ -170,4 +226,52 @@ pub fn get_icon_sets() -> Result<Value, String> {
 #[tauri::command]
 pub fn import_icon_set(dir: String) -> Result<u32, String> {
     crate::core::caption_icons::import_set(&dir)
+}
+
+// ---------------------------------------------------------------------------
+// Mud Hut installer — Adobe sign-in (device/QR flow, driven via `mudhut auth`).
+// begin() once to mint the QR+link, then the frontend polls poll() every few
+// seconds until status == "complete" (same pattern as the launch/current_step).
+// ---------------------------------------------------------------------------
+
+/// Begin Adobe sign-in: returns { url, qr, request_id, device_id }.
+#[tauri::command]
+pub fn adobe_auth_begin() -> Result<Value, String> {
+    crate::mudhut::auth_begin().map_err(estr)
+}
+
+/// Poll the sign-in once: returns { status: pending|complete|expired,
+/// retry_interval, exchange? }.
+#[tauri::command]
+pub fn adobe_auth_poll(request_id: String, device_id: String) -> Result<Value, String> {
+    crate::mudhut::auth_poll(&request_id, &device_id).map_err(estr)
+}
+
+/// The installable-app catalog (`mudhut apps [--source]`). Powers the install
+/// wizard's app picker.
+#[tauri::command]
+pub fn mudhut_apps(source: Option<String>) -> Result<Value, String> {
+    crate::mudhut::apps(source.as_deref()).map_err(estr)
+}
+
+/// Install an app via Mud Hut, streaming progress to the frontend over `on_event`
+/// (each Mud Hut `progress`/`note`/`result`/`error` NDJSON event). Runs on a
+/// blocking thread so the (minutes-long) install never freezes the UI. Resolves
+/// with the terminal `result` object, or rejects with the error message.
+#[tauri::command]
+pub async fn install_app(
+    app: String,
+    method: String,
+    prefix: String,
+    source: Option<String>,
+    on_event: tauri::ipc::Channel<Value>,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::mudhut::install_stream(&app, &method, &prefix, source.as_deref(), |ev| {
+            let _ = on_event.send(ev);
+        })
+        .map_err(estr)
+    })
+    .await
+    .map_err(estr)?
 }

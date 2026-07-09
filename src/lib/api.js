@@ -4,7 +4,7 @@
 // the UI never calls Tauri directly — mirrors the engine/cockpit discipline.
 // Each function maps 1:1 to a #[tauri::command] in src-tauri/src/commands.rs.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 
 /** Resolve a prefix's paths. Returns the prefix info object (documents_real, etc). */
 export async function prefixInfo(prefix) {
@@ -31,6 +31,40 @@ export async function launchPremiere(prefix, project = null, exportDir = null) {
 /** Poll whether Premiere is still running. Called on a timer while Running. */
 export async function isPremiereAlive() {
   return await invoke("is_premiere_alive");
+}
+
+// --- Generic per-app surface (multi-app widgets) -------------------------------
+
+/** The app catalog + install status for a prefix.
+ *  Returns { apps: [ { id, name, accent, export, installed, exe }, ... ] }. */
+export async function listApps(prefix) {
+  return await invoke("list_apps", { prefix });
+}
+
+/** Launch an app by id. Returns a LaunchStep ({step, detail}). `exportDir` is only
+ *  meaningful for export apps (Premiere / Media Encoder); null = default. */
+export async function launchApp(appId, prefix, project = null, exportDir = null) {
+  return await invoke("launch_app", { appId, prefix, project, exportDir });
+}
+
+/** Poll whether app `appId` is still running. Called on a timer while Running. */
+export async function isAppAlive(appId) {
+  return await invoke("is_app_alive", { appId });
+}
+
+/** Auto-detected clean exit for `appId` (user closed it). Resets to idle. */
+export async function cleanExitApp(appId) {
+  return await invoke("clean_exit_app", { appId });
+}
+
+/** Manual force-quit for a hung `appId`. */
+export async function forceQuitApp(appId) {
+  return await invoke("force_quit_app", { appId });
+}
+
+/** Poll the current launch step for `appId`. */
+export async function currentStepApp(appId) {
+  return await invoke("current_step_app", { appId });
 }
 
 /** Auto-detected clean exit — user closed Premiere. Stops muxer, resets to idle. */
@@ -88,4 +122,37 @@ export async function detectScale() {
  *  Wayland home-window-position control in Preferences. */
 export async function compositorInfo() {
   return await invoke("compositor_info");
+}
+
+// --- Mud Hut installer: Adobe sign-in (device/QR flow) -------------------------
+
+/** Begin Adobe sign-in. Returns { url, qr, request_id, device_id }.
+ *  `qr` is base64 PNG (prefix with "data:image/png;base64,"). */
+export async function adobeAuthBegin() {
+  return await invoke("adobe_auth_begin");
+}
+
+/** Poll the sign-in once. Returns { status: "pending"|"complete"|"expired",
+ *  retry_interval, exchange? }. Frontend calls this every retry_interval seconds
+ *  until status !== "pending". */
+export async function adobeAuthPoll(requestId, deviceId) {
+  return await invoke("adobe_auth_poll", { requestId, deviceId });
+}
+
+// --- Mud Hut installer: app catalog + streaming install ------------------------
+
+/** The installable-app catalog (`mudhut apps`). Returns { apps: [ { id, name, sap,
+ *  present, dir } ] }. Pass a `source` dir to also mark what's present there. */
+export async function mudhutApps(source = null) {
+  return await invoke("mudhut_apps", { source });
+}
+
+/** Install an app via Mud Hut, streaming progress. `onEvent(ev)` receives each
+ *  event live: { event:"progress", stage, pct, msg } / { event:"note", msg } /
+ *  the terminal { event:"result", ... }. Resolves with the terminal result, or
+ *  rejects with the error message. */
+export async function installApp({ app, method, prefix, source = null, onEvent }) {
+  const channel = new Channel();
+  channel.onmessage = (ev) => onEvent?.(ev);
+  return await invoke("install_app", { app, method, prefix, source, onEvent: channel });
 }
