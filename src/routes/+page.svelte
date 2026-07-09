@@ -36,10 +36,28 @@
   // phase: pick | installing | done | error
   let mhInstall = $state({ phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null });
 
-  function openMudHut() { view = "mudhut"; mhMethod = null; cancelSignIn(); resetInstall(); }
-  function backToMethods() { cancelSignIn(); mhMethod = null; resetInstall(); }
+  // --- windows / offline source picker ---
+  // The source dir the user points Mud Hut at: a Windows install root (drive_c /
+  // mounted C: / copied tree) for "windows", or an offline package dir for
+  // "offline". Scanning runs `mudhut apps --source` — the CLI reports which apps
+  // are present AND what kind of source it found (source_kind: windows|offline).
+  let mhSource = $state("");
+  // phase: idle | scanning | done | error
+  let mhScan = $state({ phase: "idle", apps: [], kind: null, error: null });
+  // Scanned fine, but the source kind doesn't match the chosen method (e.g. the
+  // user picked "offline" but pointed at a Windows tree) — installing would fail.
+  const mhKindMismatch = $derived(
+    mhScan.phase === "done" && mhScan.kind !== null &&
+    (mhMethod === "windows" || mhMethod === "offline") && mhScan.kind !== mhMethod);
+
+  function openMudHut() { view = "mudhut"; mhMethod = null; cancelSignIn(); resetInstall(); resetSource(); }
+  function backToMethods() { cancelSignIn(); mhMethod = null; resetInstall(); resetSource(); }
   function resetInstall() {
     mhInstall = { phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null };
+  }
+  function resetSource() {
+    mhSource = "";
+    mhScan = { phase: "idle", apps: [], kind: null, error: null };
   }
 
   async function loadCatalog() {
@@ -47,11 +65,38 @@
     catch (e) { mhCatalog = []; }
   }
 
+  async function browseSource() {
+    let dir;
+    try {
+      dir = await open({ directory: true, title: mhMethod === "windows"
+        ? "Choose the Windows install root (a drive_c, mounted C:, or copied tree)"
+        : "Choose the offline package folder" });
+    } catch (_) { return; }
+    if (!dir) return;
+    mhSource = dir;
+    await scanSource();
+  }
+
+  async function scanSource() {
+    const src = mhSource.trim();
+    if (!src) return;
+    mhScan = { phase: "scanning", apps: [], kind: null, error: null };
+    try {
+      const r = await mudhutApps(src);
+      mhScan = { phase: "done", apps: r?.apps ?? [], kind: r?.source_kind ?? null, error: null };
+    } catch (e) {
+      mhScan = { phase: "error", apps: [], kind: null, error: String(e) };
+    }
+  }
+
   async function startInstall(app) {
+    const method = mhMethod;
+    // download resolves from Adobe; windows/offline install from the scanned source.
+    const source = method === "download" ? null : mhSource.trim();
     mhInstall = { phase: "installing", app: app.id, name: app.name, stage: "starting", pct: 0, msg: "", error: null };
     try {
       await installApp({
-        app: app.id, method: "download", prefix: mhTarget,
+        app: app.id, method, prefix: mhTarget, source,
         onEvent: (ev) => {
           if (ev.event === "progress") {
             if (ev.stage) mhInstall.stage = ev.stage;
@@ -353,10 +398,13 @@
             <div class="method-d">Fetch genuine app files straight from Adobe. <b>No sign-in to install</b> — you activate once on first launch, inside the app.</div>
           </button>
         </section>
-      {:else if mhMethod === "download"}
-        <!-- No sign-in gate: the feed + CDN are public and HDPIM decrypts without
-             entitlement, so install is auth-free. Licensing is a one-time sign-in
-             INSIDE the app on first launch (NGL writes opm.db itself) — not here. -->
+      {:else}
+        <!-- download / windows / offline — the install phases (progress / done /
+             error) are shared; only the pick step differs per method.
+             No sign-in gate anywhere: the download feed + CDN are public and HDPIM
+             decrypts without entitlement; windows/offline are local-only. Licensing
+             is a one-time sign-in INSIDE the app on first launch (NGL writes opm.db
+             itself) — not here. -->
         <section class="mudhut">
           <button class="link-back" onclick={backToMethods}>← Back to install options</button>
           {#if mhInstall.phase === "installing"}
@@ -365,7 +413,12 @@
               <div class="install-stage">{mhInstall.stage || "starting"}</div>
               <div class="progress"><div class="bar" style="width: {mhInstall.pct}%"></div></div>
               <div class="install-msg">{mhInstall.msg}</div>
-              <div class="signin-d">Downloading + installing genuine {mhInstall.name} from Adobe. This takes a while — safe to leave running.</div>
+              <div class="signin-d">
+                {#if mhMethod === "download"}Downloading + installing genuine {mhInstall.name} from Adobe.
+                {:else if mhMethod === "windows"}Copying {mhInstall.name} from your Windows install and provisioning the prefix.
+                {:else}Installing {mhInstall.name} from the offline package.{/if}
+                This takes a while — safe to leave running.
+              </div>
             </div>
           {:else if mhInstall.phase === "done"}
             <div class="signin-card">
@@ -379,7 +432,7 @@
               <div class="banner err">{mhInstall.error}</div>
               <button class="primary" onclick={resetInstall}>Back to apps</button>
             </div>
-          {:else}
+          {:else if mhMethod === "download"}
             <div class="signin-card">
               <div class="signin-h">Choose an app to install</div>
               <div class="signin-d">Genuine Adobe files download straight from Adobe — no sign-in needed to install. You activate (sign in) once on first launch, inside the app.</div>
@@ -398,21 +451,74 @@
                 {#if mhCatalog.length === 0}<div class="signin-d">Loading catalog…</div>{/if}
               </div>
             </div>
+          {:else}
+            <!-- windows / offline — source picker, then the apps found in it. -->
+            <div class="signin-card">
+              <div class="signin-h">
+                {mhMethod === "windows" ? "Choose the Windows install" : "Choose the offline package"}
+              </div>
+              <div class="signin-d">
+                {#if mhMethod === "windows"}
+                  Point at a Windows install root — a Wine <b>drive_c</b>, a mounted Windows
+                  <b>C:</b> drive, or a copied tree (anything containing
+                  <b>Program&nbsp;Files/Adobe</b>). No Adobe sign-in needed.
+                {:else}
+                  Point at an offline package folder — the layout <b>mudhut download</b> stages
+                  (per-app folders with <b>Application.json</b> + payload files). Extract an
+                  ISO first. No Adobe sign-in needed.
+                {/if}
+              </div>
+              <div class="mh-target">
+                <label>{mhMethod === "windows" ? "Windows install root" : "Package folder"}</label>
+                <div class="mh-source-row">
+                  <input bind:value={mhSource} spellcheck="false"
+                         placeholder={mhMethod === "windows" ? "/path/to/drive_c or mounted C:" : "/path/to/package/products"}
+                         onkeydown={(e) => { if (e.key === "Enter") scanSource(); }} />
+                  <button class="ghost" onclick={browseSource}>Browse…</button>
+                  <button class="ghost" onclick={scanSource}
+                          disabled={!mhSource.trim() || mhScan.phase === "scanning"}>
+                    {mhScan.phase === "scanning" ? "Scanning…" : "Scan"}
+                  </button>
+                </div>
+              </div>
+              {#if mhScan.phase === "error"}
+                <div class="banner err mh-banner">{mhScan.error}</div>
+              {:else if mhScan.phase === "done"}
+                {#if mhKindMismatch}
+                  <div class="banner err mh-banner">
+                    {mhScan.kind === "windows"
+                      ? "That folder is a Windows install, not an offline package — go back and pick “Copy from an existing Windows install”."
+                      : "That folder is an offline package, not a Windows install — go back and pick “Install from an offline package”."}
+                  </div>
+                {:else}
+                  <div class="mh-target">
+                    <label>Install into</label>
+                    <input bind:value={mhTarget} spellcheck="false" />
+                  </div>
+                  <div class="mh-applist">
+                    {#each mhScan.apps as a}
+                      {#if a.present}
+                        <button class="mh-app" onclick={() => startInstall(a)}>
+                          <span class="mh-app-badge">{a.sap}</span>
+                          <span class="mh-app-name">{a.name}</span>
+                          <span class="mh-app-go">Install →</span>
+                        </button>
+                      {:else}
+                        <div class="mh-app absent">
+                          <span class="mh-app-badge">{a.sap}</span>
+                          <span class="mh-app-name">{a.name}</span>
+                          <span class="mh-app-go">not found</span>
+                        </div>
+                      {/if}
+                    {/each}
+                    {#if !mhScan.apps.some((a) => a.present)}
+                      <div class="signin-d">No installable Adobe apps found in this source.</div>
+                    {/if}
+                  </div>
+                {/if}
+              {/if}
+            </div>
           {/if}
-        </section>
-      {:else}
-        <!-- windows / offline — no sign-in; the app-picker + install UI is the next milestone. -->
-        <section class="mudhut">
-          <button class="link-back" onclick={backToMethods}>← Back to install options</button>
-          <div class="signin-card">
-            <div class="signin-h">
-              {mhMethod === "windows" ? "Copy from a Windows install" : "Install from an offline package"}
-            </div>
-            <div class="signin-d">
-              No Adobe sign-in required for this method. The app picker and install progress
-              screen are the next thing being built.
-            </div>
-          </div>
         </section>
       {/if}
     </div>
@@ -682,6 +788,16 @@
   .mh-target label { font-size: 11px; color: rgba(255,255,255,0.5); }
   .mh-target input { width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: 8px;
     border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.25); color: #cfcfd4; font-size: 12px; }
+  /* windows / offline — source picker row + apps-not-in-source rows */
+  .mh-source-row { display: flex; gap: 6px; width: 100%; }
+  .mh-source-row input { flex: 1; min-width: 0; box-sizing: border-box; padding: 7px 10px;
+    border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.25);
+    color: #cfcfd4; font-size: 12px; }
+  .mh-source-row .ghost { flex-shrink: 0; }
+  .mh-source-row .ghost:disabled { opacity: 0.45; cursor: default; }
+  .mh-banner { width: 100%; box-sizing: border-box; margin: 0; text-align: left; }
+  .mh-app.absent { opacity: 0.4; cursor: default; }
+  .mh-app.absent:hover { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.08); }
   .mh-applist { display: flex; flex-direction: column; gap: 6px; width: 100%; }
   .mh-app { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
     padding: 9px 12px; border-radius: 9px; cursor: pointer;
