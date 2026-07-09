@@ -40,6 +40,9 @@ pub fn run() {
             // Mud Hut installer — Adobe sign-in (device/QR flow)
             commands::adobe_auth_begin,
             commands::adobe_auth_poll,
+            // Mud Hut installer — app catalog + streaming install
+            commands::mudhut_apps,
+            commands::install_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Collider");

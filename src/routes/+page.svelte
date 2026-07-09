@@ -1,7 +1,8 @@
 <script>
   import { prefixInfo, doctor, listApps,
            getSettings, setSettings, detectScale, compositorInfo, getThemePresets, getIconSets,
-           importIconSet, adobeAuthBegin, adobeAuthPoll } from "$lib/api.js";
+           importIconSet, adobeAuthBegin, adobeAuthPoll,
+           mudhutApps, installApp } from "$lib/api.js";
   import AppCard from "$lib/AppCard.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
@@ -29,8 +30,45 @@
                       requestId: null, deviceId: null, status: null, error: null });
   let authTimer = null;
 
-  function openMudHut() { view = "mudhut"; mhMethod = null; cancelSignIn(); }
-  function backToMethods() { cancelSignIn(); mhMethod = null; }
+  // --- Mud Hut install wizard (post-sign-in for download) ---
+  let mhCatalog = $state([]);       // installable apps from mudhutApps()
+  let mhTarget = $state("~/Adobe");  // install target prefix (editable)
+  // phase: pick | installing | done | error
+  let mhInstall = $state({ phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null });
+
+  function openMudHut() { view = "mudhut"; mhMethod = null; cancelSignIn(); resetInstall(); }
+  function backToMethods() { cancelSignIn(); mhMethod = null; resetInstall(); }
+  function resetInstall() {
+    mhInstall = { phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null };
+  }
+
+  async function loadCatalog() {
+    try { mhCatalog = (await mudhutApps())?.apps ?? []; }
+    catch (e) { mhCatalog = []; }
+  }
+
+  async function startInstall(app) {
+    mhInstall = { phase: "installing", app: app.id, name: app.name, stage: "starting", pct: 0, msg: "", error: null };
+    try {
+      await installApp({
+        app: app.id, method: "download", prefix: mhTarget,
+        onEvent: (ev) => {
+          if (ev.event === "progress") {
+            if (ev.stage) mhInstall.stage = ev.stage;
+            if (typeof ev.pct === "number") mhInstall.pct = ev.pct;
+            if (ev.msg) mhInstall.msg = ev.msg;
+          } else if (ev.event === "note" && ev.msg) {
+            mhInstall.msg = ev.msg;
+          }
+        },
+      });
+      mhInstall = { ...mhInstall, phase: "done" };
+      prefix = mhTarget;   // point the Apps view at the freshly-installed prefix
+      await refresh();     // the new app now shows as a widget
+    } catch (e) {
+      mhInstall = { ...mhInstall, phase: "error", error: String(e) };
+    }
+  }
 
   async function startSignIn() {
     if (authTimer) { clearTimeout(authTimer); authTimer = null; }
@@ -50,7 +88,7 @@
     try {
       const r = await adobeAuthPoll(auth.requestId, auth.deviceId);
       auth = { ...auth, status: r.status };
-      if (r.status === "complete") { auth = { ...auth, phase: "done" }; return; }
+      if (r.status === "complete") { auth = { ...auth, phase: "done" }; loadCatalog(); return; }
       if (r.status === "expired")  { auth = { ...auth, phase: "expired" }; return; }
       authTimer = setTimeout(pollSignIn, ((r.retry_interval ?? 5) * 1000));
     } catch (e) {
@@ -343,11 +381,45 @@
               <button class="ghost" onclick={cancelSignIn}>Cancel</button>
             </div>
           {:else if auth.phase === "done"}
-            <div class="signin-card">
-              <div class="signin-h">✓ Signed in to Adobe</div>
-              <div class="signin-d">You're connected. Choosing which apps to download is the next step (coming soon).</div>
-              <button class="ghost" onclick={cancelSignIn}>Done</button>
-            </div>
+            {#if mhInstall.phase === "installing"}
+              <div class="signin-card">
+                <div class="signin-h">Installing {mhInstall.name}…</div>
+                <div class="install-stage">{mhInstall.stage || "starting"}</div>
+                <div class="progress"><div class="bar" style="width: {mhInstall.pct}%"></div></div>
+                <div class="install-msg">{mhInstall.msg}</div>
+                <div class="signin-d">Downloading + installing genuine {mhInstall.name} from Adobe. This takes a while — safe to leave running.</div>
+              </div>
+            {:else if mhInstall.phase === "done"}
+              <div class="signin-card">
+                <div class="signin-h">✓ {mhInstall.name} installed</div>
+                <div class="signin-d">Installed into {mhTarget}. It now appears in <b>Apps</b> — launch it there to finish the one-time Adobe activation.</div>
+                <button class="primary" onclick={() => { view = "apps"; }}>Go to Apps</button>
+                <button class="ghost" onclick={resetInstall}>Install another</button>
+              </div>
+            {:else if mhInstall.phase === "error"}
+              <div class="signin-card">
+                <div class="banner err">{mhInstall.error}</div>
+                <button class="primary" onclick={resetInstall}>Back to apps</button>
+              </div>
+            {:else}
+              <div class="signin-card">
+                <div class="signin-h">✓ Signed in — choose an app to install</div>
+                <div class="mh-target">
+                  <label>Install into</label>
+                  <input bind:value={mhTarget} spellcheck="false" />
+                </div>
+                <div class="mh-applist">
+                  {#each mhCatalog as a}
+                    <button class="mh-app" onclick={() => startInstall(a)}>
+                      <span class="mh-app-badge">{a.sap}</span>
+                      <span class="mh-app-name">{a.name}</span>
+                      <span class="mh-app-go">Install →</span>
+                    </button>
+                  {/each}
+                  {#if mhCatalog.length === 0}<div class="signin-d">Loading catalog…</div>{/if}
+                </div>
+              </div>
+            {/if}
           {:else if auth.phase === "expired"}
             <div class="signin-card">
               <div class="signin-d">The sign-in request expired. Please try again.</div>
@@ -635,4 +707,27 @@
   .primary { padding: 9px 18px; border-radius: 9px; border: 1px solid rgba(49,168,255,0.4);
     background: rgba(49,168,255,0.16); color: #8fd0ff; font-size: 13px; font-weight: 600; cursor: pointer; }
   .primary:hover { background: rgba(49,168,255,0.24); }
+
+  /* --- Mud Hut install wizard --- */
+  .install-stage { font-size: 12px; text-transform: capitalize; color: #8fd0ff; font-weight: 600; }
+  .install-msg { font-size: 11.5px; color: rgba(255,255,255,0.5); min-height: 1.2em;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .progress { width: 100%; height: 8px; border-radius: 6px; overflow: hidden;
+    background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); }
+  .progress .bar { height: 100%; background: linear-gradient(90deg, #2f7fd6, #31a8ff);
+    transition: width 0.3s ease; }
+  .mh-target { display: flex; flex-direction: column; gap: 5px; width: 100%; text-align: left; }
+  .mh-target label { font-size: 11px; color: rgba(255,255,255,0.5); }
+  .mh-target input { width: 100%; box-sizing: border-box; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.25); color: #cfcfd4; font-size: 12px; }
+  .mh-applist { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+  .mh-app { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    padding: 9px 12px; border-radius: 9px; cursor: pointer;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); color: #e8e8ea; }
+  .mh-app:hover { background: rgba(49,168,255,0.1); border-color: rgba(49,168,255,0.4); }
+  .mh-app-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; padding: 2px 6px;
+    border-radius: 5px; background: rgba(49,168,255,0.18); color: #8fd0ff; }
+  .mh-app-name { flex: 1; font-size: 13px; }
+  .mh-app-go { font-size: 11.5px; color: rgba(255,255,255,0.4); }
+  .mh-app:hover .mh-app-go { color: #8fd0ff; }
 </style>

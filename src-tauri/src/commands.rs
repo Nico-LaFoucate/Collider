@@ -246,3 +246,32 @@ pub fn adobe_auth_begin() -> Result<Value, String> {
 pub fn adobe_auth_poll(request_id: String, device_id: String) -> Result<Value, String> {
     crate::mudhut::auth_poll(&request_id, &device_id).map_err(estr)
 }
+
+/// The installable-app catalog (`mudhut apps [--source]`). Powers the install
+/// wizard's app picker.
+#[tauri::command]
+pub fn mudhut_apps(source: Option<String>) -> Result<Value, String> {
+    crate::mudhut::apps(source.as_deref()).map_err(estr)
+}
+
+/// Install an app via Mud Hut, streaming progress to the frontend over `on_event`
+/// (each Mud Hut `progress`/`note`/`result`/`error` NDJSON event). Runs on a
+/// blocking thread so the (minutes-long) install never freezes the UI. Resolves
+/// with the terminal `result` object, or rejects with the error message.
+#[tauri::command]
+pub async fn install_app(
+    app: String,
+    method: String,
+    prefix: String,
+    source: Option<String>,
+    on_event: tauri::ipc::Channel<Value>,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::mudhut::install_stream(&app, &method, &prefix, source.as_deref(), |ev| {
+            let _ = on_event.send(ev);
+        })
+        .map_err(estr)
+    })
+    .await
+    .map_err(estr)?
+}

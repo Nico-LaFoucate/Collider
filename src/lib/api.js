@@ -4,7 +4,7 @@
 // the UI never calls Tauri directly — mirrors the engine/cockpit discipline.
 // Each function maps 1:1 to a #[tauri::command] in src-tauri/src/commands.rs.
 
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, Channel } from "@tauri-apps/api/core";
 
 /** Resolve a prefix's paths. Returns the prefix info object (documents_real, etc). */
 export async function prefixInfo(prefix) {
@@ -137,4 +137,22 @@ export async function adobeAuthBegin() {
  *  until status !== "pending". */
 export async function adobeAuthPoll(requestId, deviceId) {
   return await invoke("adobe_auth_poll", { requestId, deviceId });
+}
+
+// --- Mud Hut installer: app catalog + streaming install ------------------------
+
+/** The installable-app catalog (`mudhut apps`). Returns { apps: [ { id, name, sap,
+ *  present, dir } ] }. Pass a `source` dir to also mark what's present there. */
+export async function mudhutApps(source = null) {
+  return await invoke("mudhut_apps", { source });
+}
+
+/** Install an app via Mud Hut, streaming progress. `onEvent(ev)` receives each
+ *  event live: { event:"progress", stage, pct, msg } / { event:"note", msg } /
+ *  the terminal { event:"result", ... }. Resolves with the terminal result, or
+ *  rejects with the error message. */
+export async function installApp({ app, method, prefix, source = null, onEvent }) {
+  const channel = new Channel();
+  channel.onmessage = (ev) => onEvent?.(ev);
+  return await invoke("install_app", { app, method, prefix, source, onEvent: channel });
 }
