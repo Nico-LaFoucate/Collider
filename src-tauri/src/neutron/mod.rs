@@ -63,6 +63,24 @@ fn clean_command() -> Command {
 }
 
 pub fn run_json(args: &[&str]) -> anyhow::Result<Value> {
+    run_json_inner(args, true)
+}
+
+/// Like `run_json`, but a non-zero exit is NOT automatically a failure.
+///
+/// Some commands report STATUS through the exit code rather than failure. `doctor` returns 1 for
+/// "unhealthy" — a health check that ran fine and found problems — and its payload carries
+/// `healthy` + `checks`. Treating that as a command failure is what blanked Collider's ENTIRE
+/// Apps view for build testers on 2026-08-08: `refresh()` threw at the doctor call, so
+/// `listApps` never ran and the library rendered empty behind an opaque
+/// "neutron error 1: unknown neutron failure".
+///
+/// A payload carrying a structured error (`reason`) is still surfaced as an error.
+fn run_json_status(args: &[&str]) -> anyhow::Result<Value> {
+    run_json_inner(args, false)
+}
+
+fn run_json_inner(args: &[&str], nonzero_is_failure: bool) -> anyhow::Result<Value> {
     let output = clean_command()
         .arg("--json")
         .args(args)
@@ -94,12 +112,17 @@ pub fn run_json(args: &[&str]) -> anyhow::Result<Value> {
             // Exit codes (stable, finalized in the handoff):
             //   1 generic | 2 bad prefix | 3 Premiere running
             //   4 dependency missing OR feature not available in v0
-            let reason = json
-                .get("reason")
-                .and_then(|r| r.as_str())
-                .unwrap_or("unknown neutron failure")
-                .to_string();
-            Err(NeutronError { code, reason }.into())
+            let reason = json.get("reason").and_then(|r| r.as_str());
+            // A status-carrying exit code with a real payload is not a failure — see
+            // run_json_status.
+            if !nonzero_is_failure && reason.is_none() {
+                return Ok(json);
+            }
+            Err(NeutronError {
+                code,
+                reason: reason.unwrap_or("unknown neutron failure").to_string(),
+            }
+            .into())
         }
         None => Err(anyhow!("neutron terminated by signal")),
     }
@@ -176,9 +199,11 @@ pub fn apply_display_fix(prefix: &str) -> anyhow::Result<Value> {
 /// Health surface. Render `checks` generically in the UI — do NOT hardcode the
 /// list (it's provisional until the minimal-stack cleanup lands).
 pub fn doctor(prefix: Option<&str>) -> anyhow::Result<Value> {
+    // run_json_STATUS: doctor exits 1 to mean "unhealthy", which is information to render, not a
+    // failure to propagate.
     match prefix {
-        Some(p) => run_json(&["doctor", "--prefix", p]),
-        None => run_json(&["doctor"]),
+        Some(p) => run_json_status(&["doctor", "--prefix", p]),
+        None => run_json_status(&["doctor"]),
     }
 }
 

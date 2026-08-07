@@ -402,7 +402,11 @@
     refreshing = true;
     try {
       info = await prefixInfo(prefix);
-      health = await doctor(prefix);
+      // Health is ADVISORY — never let it block the library. A build tester's Apps view rendered
+      // completely empty because doctor threw here and listApps below never ran (2026-08-08).
+      // Whatever is wrong with a prefix, the user should still see and be able to launch the apps
+      // that are installed in it.
+      try { health = await doctor(prefix); } catch (e) { health = null; }
       const cat = await listApps(prefix);          // the app catalog + install status
       apps = (cat?.apps ?? []).filter((a) => a.installed);
     } catch (e) {
