@@ -37,7 +37,70 @@ fn with_session<R>(
 
 #[tauri::command]
 pub fn prefix_info(prefix: String) -> Result<Value, String> {
-    crate::neutron::prefix_info(&prefix).map_err(estr)
+    crate::neutron::prefix_info(Some(&prefix)).map_err(estr)
+}
+
+/// The prefix the UI should work in, plus everything first-run setup needs to offer a way
+/// forward when there isn't one. `prefix: null` => nothing usable is registered; the UI shows
+/// setup rather than an empty library.
+#[tauri::command]
+pub fn working_prefix() -> Result<Value, String> {
+    let selected = crate::core::prefixes::selected();
+    Ok(serde_json::json!({
+        "prefix": selected,
+        "valid": selected.is_some(),
+        "default_new": crate::core::prefixes::default_new_prefix_path(),
+    }))
+}
+
+/// The registry, re-validated, for the Prefixes tab.
+#[tauri::command]
+pub fn list_prefixes() -> Result<Value, String> {
+    Ok(serde_json::json!({ "prefixes": crate::core::prefixes::list() }))
+}
+
+/// Prefixes found on disk that aren't registered yet, each with a suggested label.
+#[tauri::command]
+pub fn discover_prefixes() -> Result<Value, String> {
+    let found: Vec<Value> = crate::core::prefixes::discover()
+        .into_iter()
+        .map(|p| serde_json::json!({ "name": crate::core::prefixes::suggest_name(&p), "path": p }))
+        .collect();
+    Ok(serde_json::json!({ "found": found }))
+}
+
+#[tauri::command]
+pub fn add_prefix(path: String, name: Option<String>) -> Result<(), String> {
+    crate::core::prefixes::add(&path, name.as_deref())
+}
+
+#[tauri::command]
+pub fn remove_prefix(path: String) -> Result<(), String> {
+    crate::core::prefixes::remove(&path)
+}
+
+#[tauri::command]
+pub fn rename_prefix(path: String, name: String) -> Result<(), String> {
+    crate::core::prefixes::rename(&path, &name)
+}
+
+#[tauri::command]
+pub fn select_prefix(path: String) -> Result<(), String> {
+    crate::core::prefixes::select(&path)
+}
+
+/// Make a prefix Neutron-ready (`neutron prefix provision`). Minutes-long — wineboot, registry,
+/// fonts, DXVK config — and the engine emits a single JSON object at the end rather than
+/// progress, so this runs off the UI thread and the caller shows an indeterminate spinner.
+/// It CANNOT create a prefix from nothing: the engine rejects anything without a drive_c.
+/// Creating one is Mud Hut's job.
+#[tauri::command]
+pub async fn provision_prefix(path: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::neutron::run_json(&["prefix", "provision", &path]).map_err(estr)
+    })
+    .await
+    .map_err(estr)?
 }
 
 #[tauri::command]
@@ -144,7 +207,18 @@ pub fn get_settings() -> Result<Settings, String> {
 /// the Wayland home-window rule so a Preferences change takes effect immediately;
 /// a rule-write failure never fails the save.
 #[tauri::command]
-pub fn set_settings(settings: Settings) -> Result<(), String> {
+pub fn set_settings(mut settings: Settings) -> Result<(), String> {
+    // The Preferences UI sends an explicit field list that does NOT include the prefix registry —
+    // it owns display/theme settings; prefixes belong to the Prefixes tab. Because save() writes
+    // the whole struct, the omitted fields would deserialize to empty and WIPE every registered
+    // prefix the moment the user touched a preference. Carry the stored values forward.
+    let stored = crate::core::settings::load();
+    if settings.prefixes.is_empty() {
+        settings.prefixes = stored.prefixes;
+    }
+    if settings.selected_prefix.is_none() {
+        settings.selected_prefix = stored.selected_prefix;
+    }
     crate::core::settings::save(&settings).map_err(estr)?;
     let _ = crate::core::window_rule::apply(&settings);
     Ok(())

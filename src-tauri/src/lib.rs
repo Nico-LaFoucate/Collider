@@ -15,6 +15,14 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::prefix_info,
+            commands::working_prefix,
+            commands::list_prefixes,
+            commands::discover_prefixes,
+            commands::add_prefix,
+            commands::remove_prefix,
+            commands::rename_prefix,
+            commands::select_prefix,
+            commands::provision_prefix,
             commands::doctor,
             commands::apply_display_fix,
             // generic per-app surface (multi-app widgets)

@@ -45,6 +45,27 @@ pub struct Settings {
     /// on launch (core/caption_icons.rs + core/decoration.rs). Default "none".
     #[serde(default = "default_button_icon_set")]
     pub button_icon_set: String,
+
+    /// Known wine prefixes. Collider is explicitly multi-prefix (kickoff brief: "app library,
+    /// profiles, prefix registry"; README: run multiple Adobe versions side by side, import an
+    /// existing prefix) — a real setup here already has four. Empty on first run; populated by
+    /// discovery, by the user adding one, or by a Mud Hut install.
+    #[serde(default)]
+    pub prefixes: Vec<PrefixEntry>,
+
+    /// Path of the selected entry. Collider passes this EXPLICITLY on every engine call, so the
+    /// CLI's own DEFAULT_PREFIX never applies to the GUI — "it needs to launch whatever prefix
+    /// you point it at". None = nothing chosen yet, which is what triggers first-run setup.
+    #[serde(default)]
+    pub selected_prefix: Option<String>,
+}
+
+/// One registered prefix. `name` is the user's label — the path alone is a poor identifier
+/// when several prefixes are differently named holdovers (`.premiere2025` predates the suite).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrefixEntry {
+    pub name: String,
+    pub path: String,
 }
 
 fn default_home_window_fix() -> bool { true }
@@ -62,6 +83,8 @@ impl Default for Settings {
             theme: default_theme(),
             custom_colors: None,
             button_icon_set: default_button_icon_set(),
+            prefixes: Vec::new(),
+            selected_prefix: None,
         }
     }
 }

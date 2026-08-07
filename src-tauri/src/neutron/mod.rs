@@ -153,11 +153,18 @@ pub fn apps(prefix: &str) -> anyhow::Result<Value> {
     run_json(&["apps", "--prefix", prefix])
 }
 
-/// Resolve a prefix's paths. `documents_real` (symlink-resolved) is the value
-/// Collider carries verbatim into `hwmux start --watch` — Collider never resolves
-/// the symlink itself (the §1.2 lesson lives engine-side).
-pub fn prefix_info(prefix: &str) -> anyhow::Result<Value> {
-    run_json(&["prefix", "info", prefix])
+/// Resolve a prefix's paths. Pass None to let the ENGINE resolve its own default
+/// ($HOME/.premiere2025) — every prefix argument in the CLI is `nargs="?"` with that
+/// default, so Collider never has to know the path. Do not hardcode a default here:
+/// a second copy of the engine's default is a source of truth that drifts.
+///
+/// On a path with no drive_c the CLI still returns JSON — `{valid:false, reason,
+/// error_code:2}` — and exits 0, so callers get a structured answer, not an error.
+pub fn prefix_info(prefix: Option<&str>) -> anyhow::Result<Value> {
+    match prefix {
+        Some(p) => run_json(&["prefix", "info", p]),
+        None => run_json(&["prefix", "info"]),
+    }
 }
 
 /// Apply the DS.DisableDirectXDisplay fix. Idempotent. Exit 3 if Premiere runs.

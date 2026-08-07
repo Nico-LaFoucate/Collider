@@ -2,14 +2,30 @@
   import { prefixInfo, doctor, listApps,
            getSettings, setSettings, detectScale, compositorInfo, getThemePresets, getIconSets,
            importIconSet, adobeAuthBegin, adobeAuthPoll,
-           mudhutApps, installApp } from "$lib/api.js";
+           mudhutApps, installApp, workingPrefix,
+           listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
+           selectPrefix, provisionPrefix } from "$lib/api.js";
   import AppCard from "$lib/AppCard.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
 
   // --- state ---
-  // For v0 the prefix is a single known path; later this comes from a prefix registry.
-  let prefix = $state("~/.premiere2025");
+  // The working prefix is RESOLVED AT STARTUP, never hardcoded: the user's saved choice if
+  // they have one, else whatever the engine's default resolves to ($HOME/.premiere2025).
+  // This was previously a literal "~/.premiere2025", which meant that on anyone
+  // else's machine Collider opened against a nonexistent path and showed an empty library
+  // with no way to fix it. null = not resolved yet.
+  let prefix = $state(null);
+  let prefixValid = $state(true);   // false => show first-run setup instead of an empty library
+  let defaultNewPrefix = $state(""); // where a NEW prefix should go, per the backend
+
+  // --- prefix registry (Prefixes tab) ---
+  let prefixes = $state([]);         // [{ name, path, valid, selected, apps }]
+  let discovered = $state([]);       // [{ name, path }] found on disk, not registered
+  let renaming = $state(null);       // path currently being renamed
+  let renameText = $state("");
+  let provisioning = $state(null);   // path currently provisioning
+  let prefixMsg = $state(null);
   let info = $state(null);        // prefix info result (shared across cards)
   let health = $state(null);      // doctor result
   let error = $state(null);
@@ -17,7 +33,7 @@
   let refreshing = $state(false); // header Refresh button state
 
   // --- view switching + Preferences (settings) ---
-  let view = $state("apps");                                  // "apps" | "mudhut" | "preferences"
+  let view = $state("apps");                    // "apps" | "prefixes" | "mudhut" | "preferences"
 
   // --- Mud Hut installer ---
   // Which install method the user picked in the Mud Hut tab. null = show the menu.
@@ -32,7 +48,7 @@
 
   // --- Mud Hut install wizard (post-sign-in for download) ---
   let mhCatalog = $state([]);       // installable apps from mudhutApps()
-  let mhTarget = $state("~/Adobe");  // install target prefix (editable)
+  let mhTarget = $state("");  // install target prefix (editable); seeded from $HOME at startup
   // phase: pick | installing | done | error
   let mhInstall = $state({ phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null });
 
@@ -108,8 +124,9 @@
         },
       });
       mhInstall = { ...mhInstall, phase: "done" };
-      prefix = mhTarget;   // point the Apps view at the freshly-installed prefix
-      await refresh();     // the new app now shows as a widget
+      // Point the Apps view at the freshly-installed prefix AND persist it — an install into a
+      // non-default location used to be forgotten on restart, leaving the library empty.
+      await adoptPrefix(mhTarget);
     } catch (e) {
       mhInstall = { ...mhInstall, phase: "error", error: String(e) };
     }
@@ -252,8 +269,96 @@
   onMount(async () => {
     try { settings = await getSettings(); } catch (_) {}
     if (settings.scale_value == null) settings.scale_value = detectedScale ?? 1.5;
-    await refresh();                       // load prefix health + the app catalog up front
+
+    // Resolve WHERE we're working before asking anything about it.
+    try {
+      const wp = await workingPrefix();
+      prefix = wp.prefix;
+      prefixValid = wp.valid;
+      defaultNewPrefix = wp.default_new ?? "";
+      if (!mhTarget) mhTarget = defaultNewPrefix;
+      await loadPrefixes();
+    } catch (e) {
+      error = String(e);
+      prefixValid = false;
+    }
+
+    // Only load the library if there's a prefix to load it from; otherwise the first-run
+    // panel takes over and a failed refresh would just add a confusing error on top of it.
+    if (prefixValid) await refresh();
   });
+
+  // --- prefix registry actions ---------------------------------------------------------
+  async function loadPrefixes() {
+    try {
+      prefixes = (await listPrefixes())?.prefixes ?? [];
+      discovered = (await discoverPrefixes())?.found ?? [];
+    } catch (e) { prefixMsg = String(e); }
+  }
+
+  function openPrefixes() { view = "prefixes"; prefixMsg = null; loadPrefixes(); }
+
+  // Register `dir` and, if nothing was selected, start using it. Used by the first-run panel,
+  // the Prefixes tab, and after a Mud Hut install — which can land a prefix somewhere other
+  // than the default, a pointer that used to be held in memory only and lost on restart.
+  async function adoptPrefix(dir, name = null) {
+    prefixMsg = null; error = null;
+    try {
+      await addPrefix(dir, name);
+      await useprefix(dir);
+    } catch (e) { prefixMsg = String(e); error = String(e); }
+  }
+
+  async function chooseExistingPrefix() {
+    let dir;
+    try {
+      dir = await open({ directory: true, title: "Choose an existing Neutron wine prefix" });
+    } catch (_) { return; }
+    if (dir) await adoptPrefix(dir);
+  }
+
+  // Switch the whole app over to `path`.
+  async function useprefix(path) {
+    try {
+      await selectPrefix(path);
+      prefix = path;
+      prefixValid = true;
+      await loadPrefixes();
+      await refresh();
+    } catch (e) { prefixMsg = String(e); }
+  }
+
+  // Forget a prefix. Registry entry only — never the 100 GB of Adobe installs on disk.
+  async function forgetPrefix(path) {
+    try {
+      await removePrefix(path);
+      await loadPrefixes();
+      const wp = await workingPrefix();
+      prefix = wp.prefix; prefixValid = wp.valid;
+      if (prefixValid) await refresh();
+    } catch (e) { prefixMsg = String(e); }
+  }
+
+  function startRename(p) { renaming = p.path; renameText = p.name; }
+  async function commitRename() {
+    const path = renaming, name = renameText.trim();
+    renaming = null;
+    if (!path || !name) return;
+    try { await renamePrefix(path, name); await loadPrefixes(); }
+    catch (e) { prefixMsg = String(e); }
+  }
+
+  // Minutes-long; the engine reports no progress, so this is an indeterminate wait.
+  async function runProvision(path) {
+    provisioning = path; prefixMsg = null;
+    try {
+      await provisionPrefix(path);
+      prefixMsg = `Provisioned ${path}`;
+      await loadPrefixes();
+      if (path === prefix) await refresh();
+    } catch (e) { prefixMsg = String(e); }
+    finally { provisioning = null; }
+  }
 
   async function openPreferences() {
     view = "preferences";
@@ -317,7 +422,8 @@
       <div class="nav-section">Tools</div>
       <div class="nav-item" class:active={view === "mudhut"} role="button" tabindex="0"
            onclick={openMudHut}>Mud Hut</div>
-      <div class="nav-item disabled" title="Coming soon">Prefixes</div>
+      <div class="nav-item" class:active={view === "prefixes"} role="button" tabindex="0"
+           onclick={openPrefixes}>Prefixes</div>
       <div class="nav-item" class:active={view === "preferences"} role="button" tabindex="0"
            onclick={openPreferences}>Preferences</div>
     </nav>
@@ -346,8 +452,12 @@
       <div>
         <div class="title">All apps</div>
         <div class="subtitle">
-          Shared Neutron prefix · {prefix}
-          {#if info}· {info.valid ? "healthy" : "invalid"}{/if}
+          {#if prefixValid}
+            {prefixes.find((p) => p.selected)?.name ?? "Neutron prefix"} · {prefix}
+            {#if info}· {info.valid ? "healthy" : "invalid"}{/if}
+          {:else}
+            No prefix selected
+          {/if}
         </div>
       </div>
       <button class="ghost" onclick={refresh} disabled={refreshing}>↻ Refresh</button>
@@ -358,6 +468,33 @@
       <div class="banner err">{error}</div>
     {/if}
 
+    {#if !prefixValid}
+      <!-- First run, or every registered prefix has gone missing. Showing an empty library here
+           would be a dead end: it reads as "no apps installed" when the real problem is that
+           Collider doesn't know where to look. -->
+      <section class="setup">
+        <div class="setup-title">No Neutron prefix yet</div>
+        <div class="setup-body">
+          Collider needs a wine prefix with Adobe apps in it. Point it at one you already have,
+          or let Mud Hut build one at <code>{defaultNewPrefix}</code>.
+        </div>
+        <div class="setup-actions">
+          <button class="primary" onclick={chooseExistingPrefix}>Choose existing…</button>
+          <button class="ghost" onclick={openMudHut}>Set one up with Mud Hut</button>
+        </div>
+        {#if discovered.length}
+          <div class="setup-found">
+            <div class="setup-found-label">Found on this machine:</div>
+            {#each discovered as d (d.path)}
+              <button class="found-row" onclick={() => adoptPrefix(d.path, d.name)}>
+                <span class="found-name">{d.name}</span>
+                <span class="found-path">{d.path}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {:else}
     <section class="grid">
       <!-- One widget per installed app, tinted to its brand color. -->
       {#each apps as app (app.id)}
@@ -365,6 +502,85 @@
       {/each}
       {#if apps.length === 0}
         <div class="empty-apps">No apps detected in this prefix — hit ↻ Refresh.</div>
+      {/if}
+    </section>
+    {/if}
+    </div>
+  {:else if view === "prefixes"}
+    <header>
+      <div>
+        <div class="title">Prefixes</div>
+        <div class="subtitle">
+          Every prefix Collider knows about. The selected one is what the Apps tab launches into.
+        </div>
+      </div>
+      <button class="ghost" onclick={chooseExistingPrefix}>+ Add existing…</button>
+    </header>
+
+    <div class="scroll">
+    {#if prefixMsg}
+      <div class="banner">{prefixMsg}</div>
+    {/if}
+
+    <section class="plist">
+      {#each prefixes as p (p.path)}
+        <div class="prow" class:sel={p.selected} class:bad={!p.valid}>
+          <div class="pmain">
+            {#if renaming === p.path}
+              <!-- svelte-ignore a11y_autofocus -->
+              <input class="pname-edit" bind:value={renameText} autofocus
+                     onblur={commitRename}
+                     onkeydown={(e) => { if (e.key === "Enter") commitRename();
+                                         if (e.key === "Escape") renaming = null; }} />
+            {:else}
+              <div class="pname">
+                {p.name}
+                {#if p.selected}<span class="pill ok">in use</span>{/if}
+                {#if !p.valid}<span class="pill bad">missing</span>{/if}
+              </div>
+            {/if}
+            <div class="ppath">{p.path}</div>
+            <div class="papps">
+              {#if p.apps.length}{p.apps.length} app{p.apps.length === 1 ? "" : "s"} ·
+                {p.apps.join(", ")}
+              {:else}no Adobe apps detected{/if}
+            </div>
+          </div>
+          <div class="pacts">
+            {#if !p.selected && p.valid}
+              <button class="primary sm" onclick={() => useprefix(p.path)}>Use</button>
+            {/if}
+            <button class="ghost sm" onclick={() => startRename(p)}>Rename</button>
+            <button class="ghost sm" disabled={provisioning !== null || !p.valid}
+                    title="Run the Neutron provisioning recipe (wineboot, registry, fonts, DXVK). Takes a few minutes."
+                    onclick={() => runProvision(p.path)}>
+              {provisioning === p.path ? "Provisioning…" : "Provision"}
+            </button>
+            <button class="ghost sm danger" onclick={() => forgetPrefix(p.path)}
+                    title="Remove from this list. Does NOT delete the prefix on disk.">Forget</button>
+          </div>
+        </div>
+      {/each}
+
+      {#if prefixes.length === 0}
+        <div class="empty-apps">No prefixes registered yet.</div>
+      {/if}
+
+      {#if discovered.length}
+        <div class="disc">
+          <div class="disc-label">Found on this machine, not yet added</div>
+          {#each discovered as d (d.path)}
+            <div class="prow ghost-row">
+              <div class="pmain">
+                <div class="pname">{d.name}</div>
+                <div class="ppath">{d.path}</div>
+              </div>
+              <div class="pacts">
+                <button class="primary sm" onclick={() => adoptPrefix(d.path, d.name)}>Add</button>
+              </div>
+            </div>
+          {/each}
+        </div>
       {/if}
     </section>
     </div>
@@ -806,4 +1022,44 @@
   .mh-app-name { flex: 1; font-size: 13px; }
   .mh-app-go { font-size: 11.5px; color: rgba(255,255,255,0.4); }
   .mh-app:hover .mh-app-go { color: #8fd0ff; }
+  /* --- Prefixes tab ------------------------------------------------------------------ */
+  .plist { display: flex; flex-direction: column; gap: 10px; }
+  .prow { display: flex; align-items: center; gap: 14px; padding: 13px 15px; border-radius: 11px;
+          border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); }
+  .prow.sel { border-color: rgba(255,255,255,0.28); background: rgba(255,255,255,0.06); }
+  .prow.bad { opacity: 0.6; }
+  .prow.ghost-row { background: transparent; border-style: dashed; }
+  .pmain { flex: 1; min-width: 0; }
+  .pname { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .pname-edit { font-size: 13.5px; font-weight: 600; background: rgba(0,0,0,0.35); color: inherit;
+                border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; padding: 3px 7px; width: 260px; }
+  .ppath { font-size: 11px; color: rgba(255,255,255,0.45); margin-top: 2px;
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .papps { font-size: 10.5px; color: rgba(255,255,255,0.32); margin-top: 3px;
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pacts { display: flex; gap: 6px; flex-shrink: 0; }
+  button.sm { padding: 5px 10px; font-size: 11.5px; }
+  button.danger:hover:not(:disabled) { color: #ff6b6b; border-color: rgba(255,107,107,0.4); }
+  .disc { margin-top: 18px; }
+  .disc-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
+                color: rgba(255,255,255,0.3); margin-bottom: 8px; }
+
+  /* --- first-run setup panel --------------------------------------------------------- */
+  .setup { max-width: 560px; padding: 26px; border-radius: 14px;
+           border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); }
+  .setup-title { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .setup-body { font-size: 12.5px; color: rgba(255,255,255,0.55); line-height: 1.55; }
+  .setup-body code { background: rgba(0,0,0,0.35); padding: 1px 6px; border-radius: 5px; font-size: 11.5px; }
+  .setup-actions { display: flex; gap: 9px; margin-top: 18px; }
+  .setup-found { margin-top: 22px; border-top: 1px solid rgba(255,255,255,0.07); padding-top: 15px; }
+  .setup-found-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
+                       color: rgba(255,255,255,0.3); margin-bottom: 8px; }
+  .found-row { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%;
+               text-align: left; padding: 9px 12px; margin-bottom: 6px; border-radius: 9px;
+               border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.02);
+               color: inherit; cursor: pointer; }
+  .found-row:hover { background: rgba(255,255,255,0.06); }
+  .found-name { font-size: 12.5px; font-weight: 600; }
+  .found-path { font-size: 10.5px; color: rgba(255,255,255,0.42); }
+
 </style>

@@ -6,6 +6,52 @@
 
 import { invoke, Channel } from "@tauri-apps/api/core";
 
+/** The prefix the UI should work in: the user's saved choice, else the ENGINE's default.
+ *  Returns { prefix, valid, saved, home }. `valid:false` => nothing usable there yet, so the
+ *  UI offers first-run setup instead of rendering an empty library. Never hardcode a prefix
+ *  path in the frontend — the engine owns the default. */
+export async function workingPrefix() {
+  return await invoke("working_prefix");
+}
+
+// --- prefix registry -------------------------------------------------------------------
+// Collider is multi-prefix by design (kickoff brief: "prefix registry"; README: run multiple
+// Adobe versions side by side). Prefixes carry user-chosen NAMES — the path is a poor label
+// when they're differently-named holdovers. The selected path is passed explicitly on every
+// engine call, so Neutron's own DEFAULT_PREFIX never applies here.
+
+/** The registry, re-validated. Returns { prefixes: [{name, path, valid, selected, apps}] }. */
+export async function listPrefixes() {
+  return await invoke("list_prefixes");
+}
+
+/** Prefixes on disk that aren't registered yet: { found: [{name, path}] }. */
+export async function discoverPrefixes() {
+  return await invoke("discover_prefixes");
+}
+
+export async function addPrefix(path, name = null) {
+  return await invoke("add_prefix", { path, name });
+}
+
+export async function removePrefix(path) {
+  return await invoke("remove_prefix", { path });
+}
+
+export async function renamePrefix(path, name) {
+  return await invoke("rename_prefix", { path, name });
+}
+
+export async function selectPrefix(path) {
+  return await invoke("select_prefix", { path });
+}
+
+/** Make a prefix Neutron-ready. Minutes-long and returns only a final result (the engine emits
+ *  no progress), so callers show an indeterminate spinner. Cannot create a prefix from nothing. */
+export async function provisionPrefix(path) {
+  return await invoke("provision_prefix", { path });
+}
+
 /** Resolve a prefix's paths. Returns the prefix info object (documents_real, etc). */
 export async function prefixInfo(prefix) {
   return await invoke("prefix_info", { prefix });

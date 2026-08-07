@@ -43,11 +43,11 @@ impl PrefixInfo {
     /// back as exit 2, surfaced as a NeutronError by the wrapper — callers should
     /// present that to the user rather than treating it as a crash.
     pub fn detect(prefix_path: &PathBuf) -> anyhow::Result<Self> {
-        let v = crate::neutron::prefix_info(
+        let v = crate::neutron::prefix_info(Some(
             prefix_path.to_str().ok_or_else(|| {
                 anyhow::anyhow!("prefix path is not valid UTF-8")
             })?,
-        )?;
+        ))?;
         let parsed: PrefixInfo = serde_json::from_value(v)?;
         Ok(parsed)
     }
