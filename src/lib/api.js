@@ -22,10 +22,10 @@ export async function applyDisplayFix(prefix) {
 }
 
 /** Run the full MVP launch loop. Returns a LaunchStep ({step, detail}).
- *  exportDir: where Premiere's exports land (what hwmux watches). Null = default
+ *  (the export-dir argument is gone — the hwmux daemon it fed was retired from the engine)
  *  to the prefix's resolved Documents path. */
-export async function launchPremiere(prefix, project = null, exportDir = null) {
-  return await invoke("launch_premiere", { prefix, project, exportDir });
+export async function launchPremiere(prefix, project = null) {
+  return await invoke("launch_premiere", { prefix, project });
 }
 
 /** Poll whether Premiere is still running. Called on a timer while Running. */
@@ -41,10 +41,9 @@ export async function listApps(prefix) {
   return await invoke("list_apps", { prefix });
 }
 
-/** Launch an app by id. Returns a LaunchStep ({step, detail}). `exportDir` is only
- *  meaningful for export apps (Premiere / Media Encoder); null = default. */
-export async function launchApp(appId, prefix, project = null, exportDir = null) {
-  return await invoke("launch_app", { appId, prefix, project, exportDir });
+/** Launch an app by id. Returns a LaunchStep ({step, detail}). */
+export async function launchApp(appId, prefix, project = null) {
+  return await invoke("launch_app", { appId, prefix, project });
 }
 
 /** Poll whether app `appId` is still running. Called on a timer while Running. */

@@ -9,6 +9,8 @@
 //   - stdout = exactly one JSON object (parse); stderr = `[neutron] ...` logs (ignore)
 //   - non-zero exits ALSO return a JSON error object with `error_code` + `reason`
 //   - software mode is an honest v0 gap (exit 4); we do not offer it
+//   - `hwmux` is GONE (engine commit 678cb60) — the muxing workaround it drove was replaced by a
+//     real fix in Wine. Do not reintroduce a call to it.
 
 use std::process::Command;
 use serde_json::Value;
@@ -172,16 +174,18 @@ pub fn doctor(prefix: Option<&str>) -> anyhow::Result<Value> {
     }
 }
 
-/// Start the hwmux daemon. `watch` MUST be the documents_real value from
-/// prefix_info — never a guess. Returns the daemon PID to supervise.
-pub fn hwmux_start(watch: &str) -> anyhow::Result<u32> {
-    let v = run_json(&["hwmux", "start", "--watch", watch])?;
-    pid_from(&v)
-}
-
-/// Stop the hwmux daemon. Benign if nothing is running.
-pub fn hwmux_stop() -> anyhow::Result<Value> {
-    run_json(&["hwmux", "stop"])
+/// Close ONE app cleanly, leaving every other app in the prefix running.
+///
+/// All seven apps share a single wine prefix, and closing/reopening apps mid-project is normal —
+/// so a full-prefix teardown (wineserver is per-prefix, so `-k` takes down EVERYTHING) is the
+/// wrong tool here. The engine kills only processes under this app's install directory, and when
+/// the last app exits it sweeps Adobe's shared daemons itself.
+///
+/// This matters beyond tidiness: orphaned Adobe daemons accumulate across launches and wedge the
+/// NEXT app (Lightroom deadlocks on ntdll's loader_section behind them). Collider used to only
+/// `kill_group(pid)`, which left them behind.
+pub fn teardown_app(app_id: &str, prefix: &str) -> anyhow::Result<Value> {
+    run_json(&["teardown", "--app", app_id, "--prefix", prefix])
 }
 
 fn pid_from(v: &Value) -> anyhow::Result<u32> {

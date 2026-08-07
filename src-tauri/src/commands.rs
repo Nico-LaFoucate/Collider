@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use serde_json::Value;
-use crate::core::launch::{app_has_export, LaunchSession, LaunchStep};
+use crate::core::launch::{LaunchSession, LaunchStep};
 use crate::core::settings::Settings;
 
 /// App-wide state Tauri manages and injects into commands. One supervised launch
@@ -68,12 +68,9 @@ pub fn launch_app(
     app_id: String,
     prefix: String,
     project: Option<String>,
-    export_dir: Option<String>,
 ) -> Result<LaunchStep, String> {
-    let has_export = app_has_export(&app_id);
     with_session(&state, &app_id, |s| {
-        s.launch(&app_id, &prefix, project.as_deref(), export_dir.as_deref(), has_export)
-            .clone()
+        s.launch(&app_id, &prefix, project.as_deref()).clone()
     })
 }
 
@@ -111,12 +108,9 @@ pub fn launch_premiere(
     state: tauri::State<AppState>,
     prefix: String,
     project: Option<String>,
-    export_dir: Option<String>,
 ) -> Result<LaunchStep, String> {
-    let has_export = app_has_export("premiere");
     with_session(&state, "premiere", |s| {
-        s.launch("premiere", &prefix, project.as_deref(), export_dir.as_deref(), has_export)
-            .clone()
+        s.launch("premiere", &prefix, project.as_deref()).clone()
     })
 }
 

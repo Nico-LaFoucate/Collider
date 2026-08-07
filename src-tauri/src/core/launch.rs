@@ -1,28 +1,21 @@
 // core/launch.rs
 //
 // The launch loop, generalized to ANY app in the Neutron catalog. Collider keeps
-// one supervised session PER app (several apps can run at once), each with its
-// own status + optional export daemon. The flow:
-//   1. prefix info         -> health gate + documents_real (the export watch target)
+// one supervised session PER app (several apps can run at once). The flow:
+//   1. prefix info         -> health gate
 //   2. apply-display-fix   -> ensure DS.DisableDirectXDisplay (idempotent)
 //   2b. decoration         -> dark caption + KWin home-position script (best-effort)
 //   3. neutron launch <app> -> get the PID to supervise
-//   4. (export apps only)  -> hwmux start on the export dir; get the daemon PID
-//   ... app runs ...  5. on exit -> hwmux stop
+//   ... app runs ...  4. on exit -> `neutron teardown --app <id>`
 //
-// Collider never computes paths: documents_real flows from step 1 into step 4.
+// NOTE (2026-08-06): step 4 used to be `hwmux start`, a daemon that finalized Premiere's exports.
+// That daemon was a WORKAROUND for broken muxing and was retired from the engine when the native
+// ucrtbase muxing fix landed (neutron commit 678cb60 "retire collider-hwmux"). Collider was never
+// updated, so `neutron hwmux` returned an argparse error and every export-app launch reported
+// Failed even though the app came up fine. The step is gone.
 
 use serde::Serialize;
 use crate::core::prefix::PrefixInfo;
-use crate::core::daemon::HwmuxDaemon;
-
-/// Whether an app has a hardware-export pipeline (→ Collider runs the hwmux
-/// daemon while it's up). MUST mirror the `export` flag in the CLI's APP_PROFILES
-/// (`bin/neutron`); kept here so a launch doesn't need an extra catalog round-trip.
-/// Keep the two in sync when adding/changing export apps.
-pub fn app_has_export(app_id: &str) -> bool {
-    matches!(app_id, "premiere" | "mediaencoder" | "aftereffects")
-}
 
 /// Where the launch loop is. The UI renders this directly as status.
 /// (Variant/field names are still Premiere-flavored from the MVP; the frontend
@@ -34,43 +27,40 @@ pub enum LaunchStep {
     Resolving,                 // prefix info
     ApplyingDisplayFix,
     LaunchingPremiere,
-    StartingDaemon,
-    Running { premiere_pid: u32, daemon_pid: u32, display: String, neutron_wine: bool },
+    Running { premiere_pid: u32, display: String, neutron_wine: bool },
     Failed { at: String, reason: String },
     Stopped,
 }
 
-/// One supervised app session: the app id, its PID, and (for export apps) the
-/// hwmux daemon handle so teardown stops the daemon when the app exits.
+/// One supervised app session: the app id, its PID, and the prefix it runs in
+/// (kept so exit can ask the engine for an app-scoped teardown).
 pub struct LaunchSession {
     pub step: LaunchStep,
     pub app_id: String,
     pub pid: Option<u32>,
-    daemon: Option<HwmuxDaemon>,
+    prefix: String,
 }
 
 impl LaunchSession {
     pub fn new() -> Self {
-        Self { step: LaunchStep::Idle, app_id: String::new(), pid: None, daemon: None }
+        Self { step: LaunchStep::Idle, app_id: String::new(), pid: None, prefix: String::new() }
     }
 
-    /// Run the launch loop for `app_id`. `has_export` gates the hwmux daemon.
-    /// `export_dir`: where exports land (the daemon's watch target); None => the
-    /// prefix's resolved Documents path (`documents_real`). Each failure records
-    /// WHICH step failed and the engine's own reason so the UI can show it.
+    /// Run the launch loop for `app_id`. Each failure records WHICH step failed and
+    /// the engine's own reason so the UI can show it.
     pub fn launch(
         &mut self,
         app_id: &str,
         prefix: &str,
         project: Option<&str>,
-        export_dir: Option<&str>,
-        has_export: bool,
     ) -> &LaunchStep {
         self.app_id = app_id.to_string();
+        self.prefix = prefix.to_string();
 
         // 1. Resolve paths — also the prefix health gate (exit 2 = invalid).
         self.step = LaunchStep::Resolving;
-        let info: PrefixInfo = match PrefixInfo::detect(&prefix.into()) {
+        // The result is only a health gate now — documents_real was the hwmux watch target.
+        let _info: PrefixInfo = match PrefixInfo::detect(&prefix.into()) {
             Ok(i) if i.valid => i,
             Ok(_) => return self.fail("resolving", "prefix is not valid"),
             Err(e) => return self.fail("resolving", &e.to_string()),
@@ -99,28 +89,7 @@ impl LaunchSession {
         let neutron_wine = result.neutron_wine;
         self.pid = Some(pid);
 
-        // 4. Export apps (Premiere / Media Encoder): start hwmux watching the export
-        //    dir — the user's override, else the resolved Documents path. Non-export
-        //    apps skip this entirely (daemon_pid = 0).
-        let daemon_pid = if has_export {
-            self.step = LaunchStep::StartingDaemon;
-            let watch_dir: std::path::PathBuf = match export_dir {
-                Some(d) => d.into(),
-                None => info.documents_real.clone(),
-            };
-            let mut daemon = HwmuxDaemon::new(watch_dir);
-            if let Err(e) = daemon.start() {
-                // App is up but the daemon failed — surface it; don't kill the app.
-                return self.fail("daemon", &e.to_string());
-            }
-            let dpid = daemon.pid().unwrap_or(0);
-            self.daemon = Some(daemon);
-            dpid
-        } else {
-            0
-        };
-
-        self.step = LaunchStep::Running { premiere_pid: pid, daemon_pid, display, neutron_wine };
+        self.step = LaunchStep::Running { premiere_pid: pid, display, neutron_wine };
         &self.step
     }
 
@@ -137,10 +106,16 @@ impl LaunchSession {
     /// frontend's liveness poll noticed. Stop the muxer, make sure the app is
     /// really gone, and reset to Idle so the button returns to "Launch".
     pub fn clean_exit(&mut self) -> &LaunchStep {
-        if let Some(d) = self.daemon.as_mut() {
-            let _ = d.stop();
+        // Ask the ENGINE to tear this app down, app-scoped. A bare kill_group(pid) — which is all
+        // this used to do — leaves Adobe's per-app helpers behind, and those orphans accumulate
+        // across launches and wedge the NEXT app (Lightroom deadlocks on ntdll's loader_section
+        // behind them). The engine kills only what belongs to THIS app, so the other apps sharing
+        // the prefix keep running, and it sweeps the shared daemons itself when the last one exits.
+        if !self.prefix.is_empty() {
+            if let Err(e) = crate::neutron::teardown_app(&self.app_id, &self.prefix) {
+                eprintln!("[collider] teardown of {} failed: {e}", self.app_id);
+            }
         }
-        self.daemon = None;
         // Belt-and-suspenders: if the process somehow lingers, signal its group.
         if let Some(pid) = self.pid {
             if pid_alive(pid) {

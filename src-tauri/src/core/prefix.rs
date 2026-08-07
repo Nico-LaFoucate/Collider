@@ -52,9 +52,4 @@ impl PrefixInfo {
         Ok(parsed)
     }
 
-    /// The path the hwmux daemon must watch. Re-read on every launch — stale
-    /// symlink targets caused the "same settings as before" export failures.
-    pub fn watch_dir(&self) -> &PathBuf {
-        &self.documents_real
-    }
 }

@@ -3,7 +3,6 @@
   // markup/interactions; self-contained launch state; tinted to the app's brand
   // color via --acrgb. Wired to the generic per-app command surface.
   import { launchApp, isAppAlive, cleanExitApp, forceQuitApp } from "$lib/api.js";
-  import { open } from "@tauri-apps/plugin-dialog";
   import { onDestroy } from "svelte";
 
   // app = { id, name, accent, export, installed }; info = shared prefix info.
@@ -27,7 +26,6 @@
   let busy = $state(false);
   let error = $state(null);
   let menuOpen = $state(false);
-  let exportDir = $state(null);   // export apps only; null = engine default (Documents)
   let pollTimer = null;
 
   const running = $derived(step.step === "Running");
@@ -35,7 +33,7 @@
 
   const STEP_PROGRESS = {
     Idle: 0, Resolving: 0.2, ApplyingDisplayFix: 0.4,
-    LaunchingPremiere: 0.6, StartingDaemon: 0.8, Running: 1, Stopped: 0, Failed: 1,
+    LaunchingPremiere: 0.6, Running: 1, Stopped: 0, Failed: 1,
   };
   const progress = $derived(STEP_PROGRESS[step.step] ?? 0);
   const buttonLabel = $derived(busy ? "Launching…" : running ? "Running" : failed ? "Retry" : "Launch");
@@ -44,7 +42,7 @@
   async function onLaunch() {
     busy = true; error = null;
     try {
-      step = await launchApp(app.id, prefix, null, exportDir);
+      step = await launchApp(app.id, prefix, null);
       if (step.step === "Failed") error = `${step.detail.at}: ${step.detail.reason}`;
       else if (step.step === "Running") startPolling();
     } catch (e) { error = String(e); }
@@ -72,15 +70,6 @@
   // Clicking while Running toggles the force-quit menu (Running is a status).
   function onButtonClick() { if (running) menuOpen = !menuOpen; else onLaunch(); }
 
-  // Export apps only: pick where exports land (the hwmux watch target).
-  async function pickExportDir() {
-    try {
-      const chosen = await open({ directory: true, multiple: false,
-        defaultPath: exportDir ?? undefined, title: `Choose ${app.name}'s export folder` });
-      if (chosen) exportDir = chosen;
-    } catch (e) { error = String(e); }
-  }
-
   onDestroy(stopPolling);
 </script>
 
@@ -95,23 +84,8 @@
       <div class="app-name">{app.name}</div>
       <div class="app-ver">{app.version ? `${app.version} · GPU` : "GPU"}</div>
     </div>
-    {#if app.export}
-      <button class="export-btn" onclick={pickExportDir} disabled={running || busy}
-        title={exportDir ? `Export folder: ${exportDir}` : `Set ${app.name}'s export folder`}
-        aria-label="Set export folder">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 4h5l2 2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/>
-        </svg>
-      </button>
-    {/if}
   </div>
 
-  {#if app.export && exportDir}
-    <div class="export-path" title={exportDir}>
-      <span class="export-label">Exports →</span>
-      <span class="export-val">{exportDir}</span>
-    </div>
-  {/if}
 
   <div class="pills">
     {#if info}
@@ -121,7 +95,6 @@
       <span class="pill">Not checked</span>
     {/if}
     {#if running}
-      {#if app.export}<span class="pill ok pulse">hwmux watching</span>{/if}
       {#if step.detail?.display}
         <span class="pill ok">{step.detail.display === "wayland" ? "Wayland" : "X11"}</span>
       {/if}
@@ -167,12 +140,6 @@
     color: var(--ac); font-weight: 700; font-size: 15px; letter-spacing: 0.3px; }
   .app-name { font-size: 14px; font-weight: 600; }
   .app-ver { font-size: 10.5px; color: rgba(255,255,255,0.4); }
-  .export-btn { flex-shrink: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.55); cursor: pointer; }
-  .export-btn:hover:not(:disabled) { background: rgba(var(--acrgb),0.18); color: var(--ac); border-color: rgba(var(--acrgb),0.4); }
-  .export-btn:disabled { opacity: 0.4; cursor: default; }
-  .export-path { display: flex; gap: 6px; align-items: baseline; margin-bottom: 10px; font-size: 10.5px; }
-  .export-label { color: rgba(255,255,255,0.35); flex-shrink: 0; }
-  .export-val { color: rgba(255,255,255,0.55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
 
   .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
   .pill { font-size: 10px; padding: 3px 8px; border-radius: 20px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.45); border: 1px solid rgba(255,255,255,0.08); }
