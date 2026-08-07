@@ -304,7 +304,7 @@
 <div class="app">
   <aside>
     <div class="brand">
-      <div class="logo">⚛</div>
+      <img class="logo" src="/collider-logo.png" alt="" />
       <div>
         <div class="brand-name">Collider</div>
         <div class="brand-by">by Nico LaFoucate</div>
@@ -338,7 +338,6 @@
       {/if}
     </div>
 
-    <div class="studio">Smack Studio</div>
   </aside>
 
   <main>
@@ -683,7 +682,7 @@
 
   aside { width: 200px; flex-shrink: 0; padding: 20px 14px; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 22px; }
-  .logo { font-size: 22px; }
+  .logo { width: 26px; height: 26px; display: block; flex-shrink: 0; }
   .brand-name { font-size: 17px; font-weight: 700; }
   .brand-by { font-size: 9.5px; color: rgba(255,255,255,0.35); }
   .nav-section { flex-shrink: 0; font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.2px; color: rgba(255,255,255,0.3); padding: 14px 8px 6px; }
@@ -691,7 +690,6 @@
   .nav-item.active { color: #fff; background: rgba(154,92,245,0.16); }
   .nav-item.disabled { color: rgba(255,255,255,0.25); cursor: default; }
   .nav-item.disabled:hover { background: transparent; }
-  .studio { flex-shrink: 0; padding: 10px 8px 0; font-size: 10px; color: rgba(255,255,255,0.25); }
 
   main { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; }
   header { flex-shrink: 0; padding: 16px 22px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; }
