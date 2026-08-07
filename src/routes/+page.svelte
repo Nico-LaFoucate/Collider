@@ -898,7 +898,7 @@
 
   aside { width: 200px; flex-shrink: 0; padding: 20px 14px; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
   .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 22px; }
-  .logo { width: 26px; height: 26px; display: block; flex-shrink: 0; }
+  .logo { width: 44px; height: 44px; display: block; flex-shrink: 0; }
   .brand-name { font-size: 17px; font-weight: 700; }
   .brand-by { font-size: 9.5px; color: rgba(255,255,255,0.35); }
   .nav-section { flex-shrink: 0; font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.2px; color: rgba(255,255,255,0.3); padding: 14px 8px 6px; }
