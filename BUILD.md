@@ -148,3 +148,30 @@ Svelte file and `api.js`.
 - **`doctor` / `prefix info` schema is provisional** until Neutron's minimal-stack
   cleanup lands. The UI renders the `checks` list generically so a schema change won't
   break it.
+
+## Building the AppImage (release)
+
+```
+cd ~/Collider
+APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 ARCH=x86_64 ./node_modules/.bin/tauri build
+```
+
+**All three variables are required on Arch/CachyOS.** Without them `tauri build` fails with a
+useless `failed to run linuxdeploy` and swallows the real error. What each one fixes:
+
+| var | why |
+|---|---|
+| `APPIMAGE_EXTRACT_AND_RUN=1` | linuxdeploy is itself an AppImage; without this it needs FUSE to mount |
+| `NO_STRIP=1` | linuxdeploy bundles a 2024-vintage `strip` that does not understand **`.relr.dyn`** (section type `0x13`, SHT_RELR), which every current Arch library uses. Every strip call errors and the run aborts |
+| `ARCH=x86_64` | appimagetool refuses to guess: *"More than one architectures were found of the AppDir"* |
+
+⚠️ **The gtk plugin is NOT idempotent** — re-running the bundle step over an existing
+`target/release/bundle/appimage/` dies with `Manually setting rpath for GTK modules: File exists`.
+`rm -rf src-tauri/target/release/bundle/appimage` before a retry.
+
+⭐ To see what actually failed, run linuxdeploy by hand against the AppDir tauri prepared:
+```
+cd src-tauri/target/release/bundle/appimage
+APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 ARCH=x86_64 OUTPUT=Collider_0.1.0_amd64.AppImage \
+  ~/.cache/tauri/linuxdeploy-x86_64.AppImage --appdir Collider.AppDir --plugin gtk --output appimage
+```
