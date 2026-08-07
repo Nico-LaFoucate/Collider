@@ -66,10 +66,19 @@ impl LaunchSession {
             Err(e) => return self.fail("resolving", &e.to_string()),
         };
 
-        // 2. Display fix — idempotent; exit 3 if Premiere is already running.
+        // 2. Display fix — idempotent, Premiere-specific, and BEST-EFFORT.
+        //
+        // This must never abort a launch. It used to: on a prefix where Premiere was installed
+        // but had never been run, its Debug Database does not exist yet, the engine returned an
+        // error, and this step failed — so NO app in that prefix could launch, because the fix
+        // runs on the way into every launch regardless of which app it is. A build tester's
+        // entire freshly-installed suite was unlaunchable (2026-08-08).
+        //
+        // A display preference is cosmetic next to "the application starts at all". If it can't
+        // be applied, say so and carry on; the next launch will pick it up.
         self.step = LaunchStep::ApplyingDisplayFix;
         if let Err(e) = crate::neutron::apply_display_fix(prefix) {
-            return self.fail("display-fix", &e.to_string());
+            eprintln!("[collider] display fix skipped: {e}");
         }
 
         // 2b. Best-effort decoration (dark caption + home-position script). Cosmetic;
