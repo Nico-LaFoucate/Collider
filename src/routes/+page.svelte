@@ -25,6 +25,7 @@
   let renaming = $state(null);       // path currently being renamed
   let renameText = $state("");
   let provisioning = $state(null);   // path currently provisioning
+  let provProgress = $state({ pct: 0, msg: "" });
   let prefixMsg = $state(null);
   let info = $state(null);        // prefix info result (shared across cards)
   let health = $state(null);      // doctor result
@@ -348,16 +349,25 @@
     catch (e) { prefixMsg = String(e); }
   }
 
-  // Minutes-long; the engine reports no progress, so this is an indeterminate wait.
+  // Minutes-long — wineboot is the bulk of it — so show the engine's own progress stream rather
+  // than a spinner that's indistinguishable from a hang.
   async function runProvision(path) {
     provisioning = path; prefixMsg = null;
+    provProgress = { pct: 0, msg: "starting…" };
     try {
-      await provisionPrefix(path);
+      await provisionPrefix(path, (ev) => {
+        if (ev.event === "progress") {
+          if (typeof ev.pct === "number") provProgress.pct = ev.pct;
+          if (ev.msg) provProgress.msg = ev.msg;
+        } else if (ev.event === "note" && ev.msg) {
+          provProgress.msg = ev.msg;
+        }
+      });
       prefixMsg = `Provisioned ${path}`;
       await loadPrefixes();
       if (path === prefix) await refresh();
     } catch (e) { prefixMsg = String(e); }
-    finally { provisioning = null; }
+    finally { provisioning = null; provProgress = { pct: 0, msg: "" }; }
   }
 
   async function openPreferences() {
@@ -540,6 +550,12 @@
               </div>
             {/if}
             <div class="ppath">{p.path}</div>
+            {#if provisioning === p.path}
+              <div class="prov">
+                <div class="prov-bar"><div class="prov-fill" style="width: {provProgress.pct}%"></div></div>
+                <div class="prov-msg">{provProgress.pct}% · {provProgress.msg}</div>
+              </div>
+            {/if}
             <div class="papps">
               {#if p.apps.length}{p.apps.length} app{p.apps.length === 1 ? "" : "s"} ·
                 {p.apps.join(", ")}
@@ -1062,4 +1078,9 @@
   .found-name { font-size: 12.5px; font-weight: 600; }
   .found-path { font-size: 10.5px; color: rgba(255,255,255,0.42); }
 
+  .prov { margin-top: 7px; }
+  .prov-bar { height: 4px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
+  .prov-fill { height: 100%; background: rgba(255,255,255,0.6); transition: width 0.35s ease; }
+  .prov-msg { font-size: 10.5px; color: rgba(255,255,255,0.5); margin-top: 4px;
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

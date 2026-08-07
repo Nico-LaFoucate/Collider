@@ -12,7 +12,8 @@
 //   - `hwmux` is GONE (engine commit 678cb60) — the muxing workaround it drove was replaced by a
 //     real fix in Wine. Do not reintroduce a call to it.
 
-use std::process::Command;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
 use serde_json::Value;
 use anyhow::{Context, anyhow};
 
@@ -179,6 +180,58 @@ pub fn doctor(prefix: Option<&str>) -> anyhow::Result<Value> {
         Some(p) => run_json(&["doctor", "--prefix", p]),
         None => run_json(&["doctor"]),
     }
+}
+
+/// Provision a prefix, streaming progress.
+///
+/// `neutron --json --progress prefix provision <p>` emits newline-delimited events
+/// ({event:progress|note|error|result}) — the same NDJSON contract Mud Hut uses, so this reader is
+/// the twin of mudhut::install_stream. The terminal object is tagged `event:"result"`.
+///
+/// ⚠️ `--progress` is OPT-IN in the engine and must stay that way: Mud Hut shells out to
+/// `neutron prefix provision` with INHERITED stdout, so streaming by default would inject these
+/// lines into Mud Hut's own event stream and this app would read our result as Mud Hut's.
+pub fn provision_stream(prefix: &str, mut on_event: impl FnMut(Value)) -> anyhow::Result<Value> {
+    let mut cmd = clean_command();
+    cmd.arg("--json").arg("--progress").arg("prefix").arg("provision").arg(prefix);
+    // stdout = the NDJSON stream; stderr = wineboot/child noise -> inherit, never parsed.
+    cmd.stdout(Stdio::piped()).stderr(Stdio::inherit());
+
+    let mut child = cmd.spawn().context("failed to spawn `neutron`")?;
+    let stdout = child.stdout.take().context("neutron produced no stdout")?;
+
+    let mut terminal: Option<Value> = None;
+    let mut error_msg: Option<String> = None;
+    for line in BufReader::new(stdout).lines() {
+        let line = line.context("reading neutron output")?;
+        let t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let Ok(v) = serde_json::from_str::<Value>(t) else {
+            continue; // interleaved child output — not ours to interpret
+        };
+        match v.get("event").and_then(|e| e.as_str()) {
+            Some("result") => terminal = Some(v.clone()),
+            Some("error") => {
+                error_msg = Some(
+                    v.get("reason").or_else(|| v.get("message"))
+                        .and_then(|m| m.as_str()).unwrap_or("unknown error").to_string(),
+                );
+            }
+            _ => {}
+        }
+        on_event(v);
+    }
+
+    let status = child.wait().context("waiting for neutron provision")?;
+    if let Some(msg) = error_msg {
+        return Err(anyhow!("{msg}"));
+    }
+    if !status.success() {
+        return Err(anyhow!("provision exited with code {}", status.code().unwrap_or(-1)));
+    }
+    terminal.ok_or_else(|| anyhow!("provision finished without a result"))
 }
 
 /// Close ONE app cleanly, leaving every other app in the prefix running.

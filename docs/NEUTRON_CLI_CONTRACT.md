@@ -29,6 +29,12 @@ launcher logic; the contract is the stable surface, internals can evolve.*
 >   bare `kill(pid)` leaks Adobe helpers that wedge the next launch.
 > - Current subcommand set: `prefix {info,apply-display-fix,provision}`, `launch`, `apps`,
 >   `teardown`, `doctor`, `runtime`.
+> - **New: `--progress`** (top-level, with `--json`) — streams newline-delimited
+>   `{event:progress|note|error|result}` before the terminal object, the same NDJSON contract Mud
+>   Hut uses. Currently implemented for `prefix provision`. ⚠️ **Opt-in on purpose:** Mud Hut runs
+>   `neutron prefix provision` with INHERITED stdout, so streaming by default would inject these
+>   lines into Mud Hut's own stream and Collider would read neutron's result as Mud Hut's. Without
+>   `--progress` the output is byte-compatible with before: exactly one object, no `event` key.
 >
 > ⚠️ **This file is hand-maintained and nothing enforces it against the CLI.** That is exactly how
 > the hwmux drift survived. Verify against `neutron --help` before building on any claim here.

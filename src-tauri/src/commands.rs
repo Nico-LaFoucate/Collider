@@ -89,15 +89,22 @@ pub fn select_prefix(path: String) -> Result<(), String> {
     crate::core::prefixes::select(&path)
 }
 
-/// Make a prefix Neutron-ready (`neutron prefix provision`). Minutes-long — wineboot, registry,
-/// fonts, DXVK config — and the engine emits a single JSON object at the end rather than
-/// progress, so this runs off the UI thread and the caller shows an indeterminate spinner.
+/// Make a prefix Neutron-ready (`neutron prefix provision`). Minutes-long — wineboot alone is the
+/// bulk of it — so it runs off the UI thread and streams NDJSON progress events back over a
+/// Channel, the same way the Mud Hut installer does. Without the stream the user would watch an
+/// indeterminate spinner for several minutes on the one operation a first-time tester runs.
 /// It CANNOT create a prefix from nothing: the engine rejects anything without a drive_c.
 /// Creating one is Mud Hut's job.
 #[tauri::command]
-pub async fn provision_prefix(path: String) -> Result<Value, String> {
+pub async fn provision_prefix(
+    path: String,
+    on_event: tauri::ipc::Channel<Value>,
+) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::neutron::run_json(&["prefix", "provision", &path]).map_err(estr)
+        crate::neutron::provision_stream(&path, |ev| {
+            let _ = on_event.send(ev);
+        })
+        .map_err(estr)
     })
     .await
     .map_err(estr)?

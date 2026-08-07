@@ -46,10 +46,13 @@ export async function selectPrefix(path) {
   return await invoke("select_prefix", { path });
 }
 
-/** Make a prefix Neutron-ready. Minutes-long and returns only a final result (the engine emits
- *  no progress), so callers show an indeterminate spinner. Cannot create a prefix from nothing. */
-export async function provisionPrefix(path) {
-  return await invoke("provision_prefix", { path });
+/** Make a prefix Neutron-ready. Minutes-long (wineboot is the bulk), so it STREAMS progress:
+ *  onEvent receives {event:"progress", stage, pct, msg} lines, then the terminal
+ *  {event:"result", ...}. Cannot create a prefix from nothing — that's Mud Hut's job. */
+export async function provisionPrefix(path, onEvent) {
+  const channel = new Channel();
+  channel.onmessage = (ev) => onEvent?.(ev);
+  return await invoke("provision_prefix", { path, onEvent: channel });
 }
 
 /** Resolve a prefix's paths. Returns the prefix info object (documents_real, etc). */
