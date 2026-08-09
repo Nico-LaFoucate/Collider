@@ -56,10 +56,16 @@ fn apply_prefix_colors(prefix: &str) -> Result<(), String> {
     let colors = crate::core::theme::active_colors(&settings);
     let reg = crate::core::theme::reg_text(&colors);
 
+    let Some(wine) = wine_bin(prefix) else {
+        return Err("no Neutron wine matches this prefix's stamp; skipping prefix colors \
+                    rather than running distro wine (which would wineboot-clobber it)"
+            .to_string());
+    };
+
     let tmp = std::env::temp_dir().join("neutron-premiere-dark.reg");
     std::fs::write(&tmp, reg).map_err(|e| format!("write reg: {e}"))?;
 
-    let out = display::clean_command(wine_bin())
+    let out = display::clean_command(&wine)
         .env("WINEPREFIX", prefix)
         .env("WINEDEBUG", "-all")
         .args(["regedit", tmp.to_string_lossy().as_ref()])
@@ -93,9 +99,15 @@ fn apply_button_icons(prefix: &str) -> Result<(), String> {
         ),
     };
 
+    let Some(wine) = wine_bin(prefix) else {
+        return Err("no Neutron wine matches this prefix's stamp; skipping caption icons \
+                    rather than running distro wine (which would wineboot-clobber it)"
+            .to_string());
+    };
+
     let tmp = std::env::temp_dir().join("neutron-caption.reg");
     std::fs::write(&tmp, reg).map_err(|e| format!("write reg: {e}"))?;
-    let out = display::clean_command(wine_bin())
+    let out = display::clean_command(&wine)
         .env("WINEPREFIX", prefix)
         .env("WINEDEBUG", "-all")
         .args(["regedit", tmp.to_string_lossy().as_ref()])
@@ -109,9 +121,79 @@ fn apply_button_icons(prefix: &str) -> Result<(), String> {
     }
 }
 
-/// Use the Neutron wine if Collider put it on PATH, else system `wine`.
-fn wine_bin() -> &'static str {
-    if which("neutron-wine") { "neutron-wine" } else { "wine" }
+/// The wine binary to run against `prefix` — ALWAYS the runtime that prefix is
+/// stamped for, NEVER a bare PATH lookup.
+///
+/// ⛔ This used to be `if which("neutron-wine") { .. } else { "wine" }`. No
+/// `neutron-wine` existed on PATH, so every decoration pass ran **distro wine**
+/// (`/usr/bin/wine`). Its `share/wine/wine.inf` has a different mtime than the
+/// pinned runtime's, and wine re-runs the full `wine.inf` install whenever that
+/// timestamp differs from `<prefix>/.update-timestamp` — so decoration fired a
+/// `wineboot -u` that reinstalled system32 from `/usr/lib/wine`, reverting our
+/// patched natives (dwrite 520470 -> 508105, the build APPS.md says wedges).
+/// The subsequent real launch, on the pinned runtime, saw the now-distro stamp
+/// and fired a SECOND wineboot. Two full prefix reinstalls per launch, silently,
+/// on the user's 119 GB daily driver. Found 2026-08-08 by watching /proc for
+/// `rundll32 ... InstallHinfSection ... Z:\usr\share\wine\wine.inf`.
+///
+/// Resolution order — each candidate must exist and be executable:
+///   1. `$NEUTRON_WINE` (the engine honours this too)
+///   2. the runtime whose `share/wine/wine.inf` mtime == the prefix's stamp
+///      (same rule as `preserved-fixes/harnesses/runtime_for_prefix.sh`)
+///   3. `neutron-wine` on PATH (the symlink backstop)
+///
+/// Returns None rather than falling back to `wine`. Decoration is cosmetic;
+/// skipping it costs a dark title bar, while guessing costs the prefix.
+fn wine_bin(prefix: &str) -> Option<String> {
+    if let Ok(w) = std::env::var("NEUTRON_WINE") {
+        if is_exec(std::path::Path::new(&w)) {
+            return Some(w);
+        }
+    }
+    if let Some(w) = runtime_wine_for_prefix(prefix) {
+        return Some(w);
+    }
+    if which("neutron-wine") {
+        return Some("neutron-wine".to_string());
+    }
+    None
+}
+
+fn is_exec(p: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(p)
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+/// The installed runtime this prefix is stamped for, matched on `wine.inf` mtime.
+/// Running any other build against it triggers the wineboot clobber described above.
+fn runtime_wine_for_prefix(prefix: &str) -> Option<String> {
+    let stamp_raw = std::fs::read_to_string(std::path::Path::new(prefix).join(".update-timestamp"))
+        .ok()?;
+    // The file is CRLF-terminated; keep digits only.
+    let stamp: u64 = stamp_raw
+        .chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()?;
+
+    let home = std::env::var("HOME").ok()?;
+    let root = std::path::Path::new(&home).join(".local/share/neutron/runtimes");
+    for entry in std::fs::read_dir(root).ok()?.flatten() {
+        let inf = entry.path().join("share/wine/wine.inf");
+        let Ok(meta) = std::fs::metadata(&inf) else { continue };
+        let Ok(mtime) = meta.modified() else { continue };
+        let Ok(secs) = mtime.duration_since(std::time::UNIX_EPOCH) else { continue };
+        if secs.as_secs() == stamp {
+            let wine = entry.path().join("bin/wine");
+            if is_exec(&wine) {
+                return Some(wine.to_string_lossy().into_owned());
+            }
+        }
+    }
+    None
 }
 
 // ---- 2. overlay-positioning KWin script -----------------------------------
