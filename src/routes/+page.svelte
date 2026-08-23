@@ -176,13 +176,15 @@
   let themePresets = $state([]);            // [{ id, label, colors }] from the backend
   let importing = $state(false);            // caption-icon import in progress
   const COLOR_GROUPS = [
-    { label: "Title bar", keys: [
-      ["ActiveTitle", "Background"], ["TitleText", "Text"], ["InactiveTitle", "Inactive bg"] ] },
+    // The caption buttons (_ □ X) follow this group: their glyph is TitleText and their
+    // hover/pressed shades are derived from ActiveTitle by the wine patch. They used to have
+    // their own swatches wired to the classic ButtonText/ButtonHilight/ButtonShadow, which is
+    // why those had to be dark -- and that darkened COLOR_BTNFACE for every app, making
+    // Lightroom's About labels black on near-black. Those keys now stay at Windows' values.
+    { label: "Title bar & buttons", keys: [
+      ["ActiveTitle", "Background"], ["TitleText", "Text / glyph"], ["InactiveTitle", "Inactive bg"] ] },
     { label: "Menu bar", keys: [
       ["MenuBar", "Background"], ["MenuText", "Text"], ["MenuHilight", "Highlight"] ] },
-    { label: "Buttons", keys: [
-      ["ActiveTitle", "Normal bg"], ["ButtonText", "Glyph"],
-      ["ButtonHilight", "Min/Max hover"], ["ButtonShadow", "Pressed"] ] },
     { label: "Window", keys: [
       ["Window", "Background"], ["WindowText", "Text"], ["WindowFrame", "Frame edge"] ] },
   ];
@@ -263,7 +265,6 @@
     const warns = [];
     if (contrastRatio(c.TitleText, c.ActiveTitle) < 4.5) warns.push("title bar");
     if (contrastRatio(c.MenuText, c.MenuBar) < 4.5) warns.push("menu bar");
-    if (contrastRatio(c.ButtonText, c.ActiveTitle) < 3) warns.push("button glyphs");
     return warns;
   });
 
