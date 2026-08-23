@@ -187,6 +187,10 @@
       ["MenuBar", "Background"], ["MenuText", "Text"], ["MenuHilight", "Highlight"] ] },
     { label: "Window", keys: [
       ["Window", "Background"], ["WindowText", "Text"], ["WindowFrame", "Frame edge"] ] },
+    // Message boxes, common dialogs, and any control an app doesn't draw itself. Since the
+    // chrome moved off this group (neutron-wine zzzzzzzzzp/q/r) these are safe to theme freely.
+    { label: "Dialogs & controls", keys: [
+      ["ButtonFace", "Background"], ["ButtonText", "Text"], ["ButtonShadow", "Edge"] ] },
   ];
 
   // "R G B" <-> "#rrggbb" so we can use native <input type=color>.
@@ -265,6 +269,7 @@
     const warns = [];
     if (contrastRatio(c.TitleText, c.ActiveTitle) < 4.5) warns.push("title bar");
     if (contrastRatio(c.MenuText, c.MenuBar) < 4.5) warns.push("menu bar");
+    if (contrastRatio(c.ButtonText, c.ButtonFace) < 4.5) warns.push("dialogs");
     return warns;
   });
 

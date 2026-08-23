@@ -101,27 +101,23 @@ pub fn dark() -> ColorMap {
         ("Window", "43 43 43"),
         ("WindowText", "224 224 224"),
         ("HilightText", "255 255 255"),
-        // control surfaces — WINDOWS' OWN VALUES, in BOTH presets, on purpose.
+        // dialogs & controls — the surfaces Wine draws for MESSAGE BOXES, common dialogs and
+        // any control an app does not draw itself. Themed, deliberately: the whole point is that
+        // a popup matches the rest of the dark UI.
         //
-        // Real Windows never darkens the classic palette: COLOR_3DFACE is 0xF0F0F0 even in dark
-        // mode. Applications are entitled to treat it as a light surface and pair it with their
-        // own dark text, and they do -- Lightroom's About box sets black text on its labels and
-        // leaves the background to the system, so a dark ButtonFace rendered them black on
-        // near-black. Measured: a plain static paints exactly COLOR_BTNFACE behind its text
-        // (preserved-fixes/harnesses/sysface-static-bg.c in the neutron repo).
-        //
-        // The caption buttons used to be the reason these had to be dark. They now take their
-        // hover/pressed shades and glyph colour from the CAPTION palette instead -- neutron-wine
-        // patch neutron-zzzzzzzzzp-caption-buttons-use-caption-palette -- so nothing in the
-        // chrome depends on these any more. ⚠️ Do not re-darken them without checking that.
-        ("ButtonFace", "240 240 240"),
-        ("ButtonHilight", "255 255 255"),
-        ("ButtonLight", "227 227 227"),
-        ("ButtonShadow", "160 160 160"),
-        ("ButtonDkShadow", "105 105 105"),
-        ("ButtonText", "0 0 0"),
-        ("3DLight", "227 227 227"),
-        ("3DDarkShadow", "105 105 105"),
+        // ⚠️ These no longer touch the chrome. The caption buttons, the window frame and the rule
+        // under the menu bar used to read COLOR_BTNTEXT/BTNHIGHLIGHT/BTNSHADOW/3DFACE, which
+        // coupled the title bar to this group; neutron-wine patches zzzzzzzzzp/q/r moved them
+        // onto the caption, border and menu colours. So this group is now free to be exactly what
+        // its name says, and darkening it cannot put a white border anywhere.
+        ("ButtonFace", "43 43 43"),
+        ("ButtonHilight", "60 60 60"),
+        ("ButtonLight", "50 50 50"),
+        ("ButtonShadow", "30 30 30"),
+        ("ButtonDkShadow", "16 16 16"),
+        ("ButtonText", "224 224 224"),
+        ("3DLight", "60 60 60"),
+        ("3DDarkShadow", "20 20 20"),
     ])
 }
 
@@ -147,26 +143,14 @@ pub fn light() -> ColorMap {
         ("Window", "255 255 255"),
         ("WindowText", "20 20 20"),
         ("HilightText", "255 255 255"),
-        // control surfaces — WINDOWS' OWN VALUES, in BOTH presets, on purpose.
-        //
-        // Real Windows never darkens the classic palette: COLOR_3DFACE is 0xF0F0F0 even in dark
-        // mode. Applications are entitled to treat it as a light surface and pair it with their
-        // own dark text, and they do -- Lightroom's About box sets black text on its labels and
-        // leaves the background to the system, so a dark ButtonFace rendered them black on
-        // near-black. Measured: a plain static paints exactly COLOR_BTNFACE behind its text
-        // (preserved-fixes/harnesses/sysface-static-bg.c in the neutron repo).
-        //
-        // The caption buttons used to be the reason these had to be dark. They now take their
-        // hover/pressed shades and glyph colour from the CAPTION palette instead -- neutron-wine
-        // patch neutron-zzzzzzzzzp-caption-buttons-use-caption-palette -- so nothing in the
-        // chrome depends on these any more. ⚠️ Do not re-darken them without checking that.
-        ("ButtonFace", "240 240 240"),
+        // dialogs & controls — see the note in dark(); these are app-facing surfaces, not chrome.
+        ("ButtonFace", "245 245 245"),
         ("ButtonHilight", "255 255 255"),
-        ("ButtonLight", "227 227 227"),
+        ("ButtonLight", "235 235 235"),
         ("ButtonShadow", "160 160 160"),
-        ("ButtonDkShadow", "105 105 105"),
-        ("ButtonText", "0 0 0"),
-        ("3DLight", "227 227 227"),
-        ("3DDarkShadow", "105 105 105"),
+        ("ButtonDkShadow", "120 120 120"),
+        ("ButtonText", "20 20 20"),
+        ("3DLight", "235 235 235"),
+        ("3DDarkShadow", "120 120 120"),
     ])
 }
