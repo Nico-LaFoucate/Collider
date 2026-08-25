@@ -173,6 +173,19 @@ pub async fn launch_app(
     launch_off_main(state.sessions.clone(), app_id, prefix, project).await
 }
 
+/// Adopt an already-running app (started from the application menu, or left over from a previous
+/// Collider run) so the GUI can supervise and force-quit it. The frontend calls this when
+/// `list_apps` reports `running: true` for an app it has no session for.
+#[tauri::command]
+pub fn adopt_app(
+    state: tauri::State<AppState>,
+    app_id: String,
+    prefix: String,
+    pid: u32,
+) -> Result<LaunchStep, String> {
+    with_session(&state, &app_id, |s| s.adopt(&app_id, &prefix, pid).clone())
+}
+
 /// Poll whether `app_id` is still alive (a single kill(pid,0) syscall).
 #[tauri::command]
 pub fn is_app_alive(state: tauri::State<AppState>, app_id: String) -> Result<bool, String> {

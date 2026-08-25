@@ -2,7 +2,7 @@
   // One app widget — a per-app instance of the original Premiere card. Same
   // markup/interactions; self-contained launch state; tinted to the app's brand
   // color via --acrgb. Wired to the generic per-app command surface.
-  import { launchApp, isAppAlive, cleanExitApp, forceQuitApp } from "$lib/api.js";
+  import { launchApp, isAppAlive, cleanExitApp, forceQuitApp, adoptApp } from "$lib/api.js";
   import { onDestroy } from "svelte";
 
   // app = { id, name, accent, export, installed }; info = shared prefix info.
@@ -38,6 +38,17 @@
   const progress = $derived(STEP_PROGRESS[step.step] ?? 0);
   const buttonLabel = $derived(busy ? "Launching…" : running ? "Running" : failed ? "Retry" : "Launch");
   const buttonClass = $derived(running ? "running" : failed ? "failed" : "");
+
+  // An app can already be running when this card mounts — launched from the application menu, or
+  // left over from a previous Collider run. Adopt it so the card shows Running and force-quit
+  // works, instead of offering "Launch" and starting a second copy.
+  $effect(() => {
+    if (app?.running && app?.pid && step.step !== "Running") {
+      adoptApp(app.id, prefix, app.pid)
+        .then((s) => { step = s; startPolling(); })
+        .catch((e) => { error = String(e); });
+    }
+  });
 
   async function onLaunch() {
     busy = true; error = null;

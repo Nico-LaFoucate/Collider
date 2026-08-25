@@ -100,6 +100,14 @@ export async function isAppAlive(appId) {
   return await invoke("is_app_alive", { appId });
 }
 
+/** Adopt an app that is already running — started from the application menu, or left over from a
+ *  previous Collider run. Without this the card would show "Launch" and clicking it would start a
+ *  SECOND copy. `neutron apps` reports running/pid per app; this hands that pid to the session so
+ *  force-quit and clean-exit work exactly as for an app Collider launched itself. */
+export async function adoptApp(appId, prefix, pid) {
+  return await invoke("adopt_app", { appId, prefix, pid });
+}
+
 /** Auto-detected clean exit for `appId` (user closed it). Resets to idle. */
 export async function cleanExitApp(appId) {
   return await invoke("clean_exit_app", { appId });

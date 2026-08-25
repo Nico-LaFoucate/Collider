@@ -104,6 +104,26 @@ impl LaunchSession {
 
     /// Is the supervised process still alive? kill(pid, 0) — sends no signal, just
     /// checks existence. Returns false if there's no tracked PID.
+    /// Adopt an app this session did not start — one launched from the APPLICATION MENU, or left
+    /// running by a previous Collider run. Without this, an app started outside Collider is
+    /// invisible to it: the card shows "Launch", and clicking would start a SECOND copy.
+    ///
+    /// Neutron's `apps` reports `running`/`pid` per app (matched on the exe's full path in
+    /// /proc/<pid>/cmdline, never a loose name substring), so adopting is just recording that pid
+    /// and moving the card to Running. Force quit and clean-exit then work exactly as they do for
+    /// an app Collider launched itself.
+    pub fn adopt(&mut self, app_id: &str, prefix: &str, pid: u32) -> &LaunchStep {
+        self.app_id = app_id.to_string();
+        self.prefix = prefix.to_string();
+        self.pid = Some(pid);
+        self.step = LaunchStep::Running {
+            premiere_pid: pid,
+            display: "adopted".to_string(),
+            neutron_wine: true,
+        };
+        &self.step
+    }
+
     pub fn is_alive(&self) -> bool {
         match self.pid {
             Some(pid) => pid_alive(pid),

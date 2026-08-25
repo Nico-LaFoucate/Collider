@@ -28,6 +28,7 @@ pub fn run() {
             // generic per-app surface (multi-app widgets)
             commands::list_apps,
             commands::launch_app,
+            commands::adopt_app,
             commands::is_app_alive,
             commands::clean_exit_app,
             commands::force_quit_app,
