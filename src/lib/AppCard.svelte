@@ -36,7 +36,13 @@
     LaunchingPremiere: 0.6, Running: 1, Stopped: 0, Failed: 1,
   };
   const progress = $derived(STEP_PROGRESS[step.step] ?? 0);
-  const buttonLabel = $derived(busy ? "Launching…" : running ? "Running" : failed ? "Retry" : "Launch");
+  // `busy` covers EVERY in-flight action, so a single "Launching…" label lied during a quit —
+  // the user watched the button say "Launching…" while the app shut down. Name the action.
+  let action = $state(null);   // "launch" | "quit" | null
+  const buttonLabel = $derived(
+    action === "quit" ? "Quitting…"
+    : busy ? "Launching…"
+    : running ? "Running" : failed ? "Retry" : "Launch");
   const buttonClass = $derived(running ? "running" : failed ? "failed" : "");
 
   // An app can already be running when this card mounts — launched from the application menu, or
@@ -58,13 +64,13 @@
   });
 
   async function onLaunch() {
-    busy = true; error = null;
+    busy = true; action = "launch"; error = null;
     try {
       step = await launchApp(app.id, prefix, null);
       if (step.step === "Failed") error = `${step.detail.at}: ${step.detail.reason}`;
       else if (step.step === "Running") startPolling();
     } catch (e) { error = String(e); }
-    finally { busy = false; }
+    finally { busy = false; action = null; }
   }
 
   // While Running, poll liveness; on exit, auto clean-exit (stop daemon, reset).
@@ -72,20 +78,23 @@
     stopPolling();
     pollTimer = setInterval(async () => {
       try {
-        if (!(await isAppAlive(app.id))) { stopPolling(); step = await cleanExitApp(app.id); }
+        if (!(await isAppAlive(app.id))) {
+          stopPolling(); action = "quit";
+          try { step = await cleanExitApp(app.id); } finally { action = null; }
+        }
       } catch (e) { stopPolling(); error = String(e); }
     }, 1500);
   }
   function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
   async function onForceQuit() {
-    menuOpen = false; busy = true;
+    menuOpen = false; busy = true; action = "quit";
     // Claim the pid BEFORE quitting, so the adopt effect cannot resurrect it from a stale
     // list_apps snapshot while the process is on its way out.
     handledPid = app?.pid ?? step.detail?.premiere_pid ?? handledPid;
     try { stopPolling(); step = await forceQuitApp(app.id); }
     catch (e) { error = String(e); }
-    finally { busy = false; }
+    finally { busy = false; action = null; }
   }
 
   // Clicking while Running toggles the force-quit menu (Running is a status).

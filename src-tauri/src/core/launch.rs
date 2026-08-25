@@ -169,13 +169,19 @@ impl LaunchSession {
     /// frontend's liveness poll noticed. Stop the muxer, make sure the app is
     /// really gone, and reset to Idle so the button returns to "Launch".
     pub fn clean_exit(&mut self) -> &LaunchStep {
+        self.teardown(false)
+    }
+
+    /// `force` skips the engine's graceful WM_CLOSE wait (up to 25 s). Only a Force quit sets it:
+    /// the process group has already been signalled, so there is nothing left to close politely.
+    fn teardown(&mut self, force: bool) -> &LaunchStep {
         // Ask the ENGINE to tear this app down, app-scoped. A bare kill_group(pid) — which is all
         // this used to do — leaves Adobe's per-app helpers behind, and those orphans accumulate
         // across launches and wedge the NEXT app (Lightroom deadlocks on ntdll's loader_section
         // behind them). The engine kills only what belongs to THIS app, so the other apps sharing
         // the prefix keep running, and it sweeps the shared daemons itself when the last one exits.
         if !self.prefix.is_empty() {
-            if let Err(e) = crate::neutron::teardown_app(&self.app_id, &self.prefix) {
+            if let Err(e) = crate::neutron::teardown_app(&self.app_id, &self.prefix, force) {
                 eprintln!("[collider] teardown of {} failed: {e}", self.app_id);
             }
         }
@@ -196,7 +202,7 @@ impl LaunchSession {
         if let Some(pid) = self.pid {
             let _ = kill_group(pid);
         }
-        self.clean_exit()
+        self.teardown(true)
     }
 
     fn fail(&mut self, at: &str, reason: &str) -> &LaunchStep {

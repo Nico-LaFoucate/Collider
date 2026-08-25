@@ -276,8 +276,20 @@ pub fn provision_stream(prefix: &str, mut on_event: impl FnMut(Value)) -> anyhow
 /// This matters beyond tidiness: orphaned Adobe daemons accumulate across launches and wedge the
 /// NEXT app (Lightroom deadlocks on ntdll's loader_section behind them). Collider used to only
 /// `kill_group(pid)`, which left them behind.
-pub fn teardown_app(app_id: &str, prefix: &str) -> anyhow::Result<Value> {
-    run_json(&["teardown", "--app", app_id, "--prefix", prefix])
+pub fn teardown_app(app_id: &str, prefix: &str, force: bool) -> anyhow::Result<Value> {
+    // `force` maps to the engine's --force, which SKIPS the graceful WM_CLOSE step.
+    //
+    // ⏱ That step waits up to --grace seconds (default 25) for the app to close itself and write
+    // its preferences. Correct for a normal exit; wrong for a FORCE QUIT, where we have already
+    // SIGTERMed the process group and are now waiting 25 s for a graceful close that can never
+    // arrive. That is the "hangs on the quitting phase for too long" the user reported.
+    //
+    // The trade is the engine's own: --force means the app loses unsaved preferences. That is
+    // precisely what the user asked for by choosing Force quit, and it is NOT applied to the
+    // clean-exit path, which still gives the app its full grace period to save.
+    let mut args = vec!["teardown", "--app", app_id, "--prefix", prefix];
+    if force { args.push("--force"); }
+    run_json(&args)
 }
 
 fn pid_from(v: &Value) -> anyhow::Result<u32> {
