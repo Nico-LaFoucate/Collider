@@ -37,6 +37,45 @@ pub struct AppState {
 /// The session lock is still held for the duration of one launch — that is deliberate and
 /// correct, since two concurrent launches of the SAME app must not interleave. It no longer costs
 /// anything visible, because the lock is now held on a worker rather than on the main thread.
+/// Run any blocking work OFF the main thread.
+///
+/// 🚨 In Tauri v2 a SYNCHRONOUS `#[tauri::command]` runs on the MAIN THREAD. Every command here
+/// either shells out to the `neutron` CLI (`Command::output()` — waits for the child and drains
+/// its stdout) or takes the session mutex, which a launch may already hold. Either one blocks the
+/// event loop, and the whole window stops painting and accepting input.
+///
+/// The user hit this twice: first on Launch, and — after I fixed only launch — again on Force
+/// quit. Fixing the instance instead of the class just moved the freeze to the next button.
+/// Anything that can block belongs here.
+async fn off_main<T, F>(f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("task failed: {e}"))?
+}
+
+/// `with_session`, off the main thread.
+async fn with_session_off_main<T, F>(
+    sessions: Arc<Mutex<HashMap<String, LaunchSession>>>,
+    app_id: &str,
+    f: F,
+) -> Result<T, String>
+where
+    F: FnOnce(&mut LaunchSession) -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let app_id = app_id.to_string();
+    off_main(move || {
+        let mut map = sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let s = map.entry(app_id).or_insert_with(LaunchSession::new);
+        Ok(f(s))
+    })
+    .await
+}
+
 async fn launch_off_main(
     sessions: Arc<Mutex<HashMap<String, LaunchSession>>>,
     app_id: String,
@@ -67,8 +106,8 @@ fn with_session<R>(
 }
 
 #[tauri::command]
-pub fn prefix_info(prefix: String) -> Result<Value, String> {
-    crate::neutron::prefix_info(Some(&prefix)).map_err(estr)
+pub async fn prefix_info(prefix: String) -> Result<Value, String> {
+    off_main(move || crate::neutron::prefix_info(Some(&prefix)).map_err(estr)).await
 }
 
 /// The prefix the UI should work in, plus everything first-run setup needs to offer a way
@@ -142,13 +181,13 @@ pub async fn provision_prefix(
 }
 
 #[tauri::command]
-pub fn doctor(prefix: Option<String>) -> Result<Value, String> {
-    crate::neutron::doctor(prefix.as_deref()).map_err(estr)
+pub async fn doctor(prefix: Option<String>) -> Result<Value, String> {
+    off_main(move || crate::neutron::doctor(prefix.as_deref()).map_err(estr)).await
 }
 
 #[tauri::command]
-pub fn apply_display_fix(prefix: String) -> Result<Value, String> {
-    crate::neutron::apply_display_fix(&prefix).map_err(estr)
+pub async fn apply_display_fix(prefix: String) -> Result<Value, String> {
+    off_main(move || crate::neutron::apply_display_fix(&prefix).map_err(estr)).await
 }
 
 // ---------------------------------------------------------------------------
@@ -157,8 +196,8 @@ pub fn apply_display_fix(prefix: String) -> Result<Value, String> {
 
 /// The app catalog + install status for a prefix — powers the per-app widgets.
 #[tauri::command]
-pub fn list_apps(prefix: String) -> Result<Value, String> {
-    crate::neutron::apps(&prefix).map_err(estr)
+pub async fn list_apps(prefix: String) -> Result<Value, String> {
+    off_main(move || crate::neutron::apps(&prefix).map_err(estr)).await
 }
 
 /// Run the launch loop for `app_id`. Returns the resulting LaunchStep so the UI
@@ -177,37 +216,39 @@ pub async fn launch_app(
 /// Collider run) so the GUI can supervise and force-quit it. The frontend calls this when
 /// `list_apps` reports `running: true` for an app it has no session for.
 #[tauri::command]
-pub fn adopt_app(
-    state: tauri::State<AppState>,
+pub async fn adopt_app(
+    state: tauri::State<'_, AppState>,
     app_id: String,
     prefix: String,
     pid: u32,
 ) -> Result<LaunchStep, String> {
-    with_session(&state, &app_id, |s| s.adopt(&app_id, &prefix, pid).clone())
+    let id = app_id.clone();
+    with_session_off_main(state.sessions.clone(), &app_id,
+        move |s| s.adopt(&id, &prefix, pid).clone()).await
 }
 
 /// Poll whether `app_id` is still alive (a single kill(pid,0) syscall).
 #[tauri::command]
-pub fn is_app_alive(state: tauri::State<AppState>, app_id: String) -> Result<bool, String> {
-    with_session(&state, &app_id, |s| s.is_alive())
+pub async fn is_app_alive(state: tauri::State<'_, AppState>, app_id: String) -> Result<bool, String> {
+    with_session_off_main(state.sessions.clone(), &app_id, |s| s.is_alive()).await
 }
 
 /// Auto-detected clean exit for `app_id` — the user closed it normally.
 #[tauri::command]
-pub fn clean_exit_app(state: tauri::State<AppState>, app_id: String) -> Result<LaunchStep, String> {
-    with_session(&state, &app_id, |s| s.clean_exit().clone())
+pub async fn clean_exit_app(state: tauri::State<'_, AppState>, app_id: String) -> Result<LaunchStep, String> {
+    with_session_off_main(state.sessions.clone(), &app_id, |s| s.clean_exit().clone()).await
 }
 
 /// Manual "Force quit" for a hung `app_id`.
 #[tauri::command]
-pub fn force_quit_app(state: tauri::State<AppState>, app_id: String) -> Result<LaunchStep, String> {
-    with_session(&state, &app_id, |s| s.force_quit().clone())
+pub async fn force_quit_app(state: tauri::State<'_, AppState>, app_id: String) -> Result<LaunchStep, String> {
+    with_session_off_main(state.sessions.clone(), &app_id, |s| s.force_quit().clone()).await
 }
 
 /// Poll the current launch step for `app_id`.
 #[tauri::command]
-pub fn current_step_app(state: tauri::State<AppState>, app_id: String) -> Result<LaunchStep, String> {
-    with_session(&state, &app_id, |s| s.step.clone())
+pub async fn current_step_app(state: tauri::State<'_, AppState>, app_id: String) -> Result<LaunchStep, String> {
+    with_session_off_main(state.sessions.clone(), &app_id, |s| s.step.clone()).await
 }
 
 // ---------------------------------------------------------------------------
@@ -225,23 +266,23 @@ pub async fn launch_premiere(
 }
 
 #[tauri::command]
-pub fn is_premiere_alive(state: tauri::State<AppState>) -> Result<bool, String> {
-    with_session(&state, "premiere", |s| s.is_alive())
+pub async fn is_premiere_alive(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    with_session_off_main(state.sessions.clone(), "premiere", |s| s.is_alive()).await
 }
 
 #[tauri::command]
-pub fn clean_exit(state: tauri::State<AppState>) -> Result<LaunchStep, String> {
-    with_session(&state, "premiere", |s| s.clean_exit().clone())
+pub async fn clean_exit(state: tauri::State<'_, AppState>) -> Result<LaunchStep, String> {
+    with_session_off_main(state.sessions.clone(), "premiere", |s| s.clean_exit().clone()).await
 }
 
 #[tauri::command]
-pub fn force_quit(state: tauri::State<AppState>) -> Result<LaunchStep, String> {
-    with_session(&state, "premiere", |s| s.force_quit().clone())
+pub async fn force_quit(state: tauri::State<'_, AppState>) -> Result<LaunchStep, String> {
+    with_session_off_main(state.sessions.clone(), "premiere", |s| s.force_quit().clone()).await
 }
 
 #[tauri::command]
-pub fn current_step(state: tauri::State<AppState>) -> Result<LaunchStep, String> {
-    with_session(&state, "premiere", |s| s.step.clone())
+pub async fn current_step(state: tauri::State<'_, AppState>) -> Result<LaunchStep, String> {
+    with_session_off_main(state.sessions.clone(), "premiere", |s| s.step.clone()).await
 }
 
 /// Read persisted settings (Preferences). Defaults if no file yet.

@@ -41,6 +41,17 @@ pub struct LaunchSession {
     prefix: String,
 }
 
+/// One variable out of a live process's real environment (`/proc/<pid>/environ`).
+/// Used when ADOPTING an app Collider did not start, so its reported state is observed rather
+/// than guessed.
+fn proc_env(pid: u32, key: &str) -> Option<String> {
+    let data = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+    let want = format!("{key}=");
+    data.split(|&b| b == 0)
+        .filter_map(|e| std::str::from_utf8(e).ok())
+        .find_map(|s| s.strip_prefix(want.as_str()).map(|v| v.to_string()))
+}
+
 impl LaunchSession {
     pub fn new() -> Self {
         Self { step: LaunchStep::Idle, app_id: String::new(), pid: None, prefix: String::new() }
@@ -113,14 +124,37 @@ impl LaunchSession {
     /// and moving the card to Running. Force quit and clean-exit then work exactly as they do for
     /// an app Collider launched itself.
     pub fn adopt(&mut self, app_id: &str, prefix: &str, pid: u32) -> &LaunchStep {
+        // ⛔ REFUSE A DEAD PID. The caller's `running`/`pid` come from the last `apps` refresh and
+        // go stale the moment the app exits — most sharply right after a FORCE QUIT. Adopting one
+        // of those fabricated a Running card for a process that no longer exists, and since
+        // /proc/<pid>/environ was gone with it, the card also claimed "X11" and "Neutron wine
+        // missing". Every one of those was invented. If it is not alive, say nothing.
+        if !pid_alive(pid) {
+            return &self.step;
+        }
         self.app_id = app_id.to_string();
         self.prefix = prefix.to_string();
         self.pid = Some(pid);
-        self.step = LaunchStep::Running {
-            premiere_pid: pid,
-            display: "adopted".to_string(),
-            neutron_wine: true,
+        // ⛔ ASK THE PROCESS, do not assume. The first cut filled these in with a placeholder
+        // ("adopted", neutron_wine: true) — and the card renders
+        // `display === "wayland" ? "Wayland" : "X11"`, so a placeholder displayed as a confident
+        // "X11" for a session that was actually Wayland. A fabricated value shown as fact is
+        // worse than no value: the user reported it immediately, and rightly.
+        // /proc/<pid>/environ is the process's real environment, so it is the real answer.
+        let display = if proc_env(pid, "WAYLAND_DISPLAY").is_some() {
+            "wayland".to_string()
+        } else if proc_env(pid, "DISPLAY").is_some() {
+            "x11".to_string()
+        } else {
+            "unknown".to_string()
         };
+        // Ours iff the running binary came out of a Neutron runtime.
+        let neutron_wine = std::fs::read_link(format!("/proc/{pid}/exe"))
+            .map(|p| p.to_string_lossy().contains("/neutron/runtimes/"))
+            .unwrap_or(false)
+            || proc_env(pid, "NEUTRON_WINE_VERSION").is_some();
+
+        self.step = LaunchStep::Running { premiere_pid: pid, display, neutron_wine };
         &self.step
     }
 

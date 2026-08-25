@@ -42,10 +42,17 @@
   // An app can already be running when this card mounts — launched from the application menu, or
   // left over from a previous Collider run. Adopt it so the card shows Running and force-quit
   // works, instead of offering "Launch" and starting a second copy.
+  // `app.running`/`app.pid` are a SNAPSHOT from the last list_apps refresh and go stale the moment
+  // the app exits — most sharply right after a force quit, where the card would otherwise adopt
+  // the pid it just killed and show a fabricated Running state. Remember every pid we have already
+  // acted on and never touch it twice; the backend refuses a dead pid as well.
+  let handledPid = $state(null);
   $effect(() => {
-    if (app?.running && app?.pid && step.step !== "Running") {
-      adoptApp(app.id, prefix, app.pid)
-        .then((s) => { step = s; startPolling(); })
+    if (app?.running && app?.pid && app.pid !== handledPid && step.step !== "Running") {
+      const pid = app.pid;
+      handledPid = pid;
+      adoptApp(app.id, prefix, pid)
+        .then((s) => { if (s.step === "Running") { step = s; startPolling(); } })
         .catch((e) => { error = String(e); });
     }
   });
@@ -73,6 +80,9 @@
 
   async function onForceQuit() {
     menuOpen = false; busy = true;
+    // Claim the pid BEFORE quitting, so the adopt effect cannot resurrect it from a stale
+    // list_apps snapshot while the process is on its way out.
+    handledPid = app?.pid ?? step.detail?.premiere_pid ?? handledPid;
     try { stopPolling(); step = await forceQuitApp(app.id); }
     catch (e) { error = String(e); }
     finally { busy = false; }
@@ -107,7 +117,11 @@
     {/if}
     {#if running}
       {#if step.detail?.display}
-        <span class="pill ok">{step.detail.display === "wayland" ? "Wayland" : "X11"}</span>
+        {#if step.detail.display === "wayland"}
+          <span class="pill ok">Wayland</span>
+        {:else if step.detail.display === "x11"}
+          <span class="pill ok">X11</span>
+        {/if}
       {/if}
       {#if step.detail && step.detail.neutron_wine === false}
         <span class="pill bad" title="Neutron wine not found — playback/HiDPI fixes are inactive">⚠ Neutron wine missing</span>
