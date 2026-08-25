@@ -9,7 +9,7 @@
 // Tauri's managed state so multiple IPC calls don't race.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use serde_json::Value;
 use crate::core::launch::{LaunchSession, LaunchStep};
 use crate::core::settings::Settings;
@@ -18,7 +18,38 @@ use crate::core::settings::Settings;
 /// session PER app id (several apps can run at once), created on demand.
 #[derive(Default)]
 pub struct AppState {
-    pub sessions: Mutex<HashMap<String, LaunchSession>>,
+    /// Arc so a launch can be moved onto a worker thread. See launch_app().
+    pub sessions: Arc<Mutex<HashMap<String, LaunchSession>>>,
+}
+
+/// Run a launch OFF the main thread.
+///
+/// 🚨 WHY THIS IS NOT A PLAIN `#[tauri::command] fn`. In Tauri v2 a SYNCHRONOUS command runs on
+/// the MAIN THREAD, so it blocks the event loop for its whole duration. `launch()` shells out to
+/// the `neutron` CLI via `Command::output()`, which waits for the child to exit and reads its
+/// stdout to EOF — many seconds. The entire Collider window froze for that whole time: no
+/// repaint, no input, the "Launching…" button not even animating. That is the freeze the user
+/// reported ("Collider freezes when launching an app until the app actually begins launching").
+///
+/// An `async` command is polled on Tauri's runtime instead, and the blocking work goes to
+/// `spawn_blocking`, so the main thread stays free to paint and accept input.
+///
+/// The session lock is still held for the duration of one launch — that is deliberate and
+/// correct, since two concurrent launches of the SAME app must not interleave. It no longer costs
+/// anything visible, because the lock is now held on a worker rather than on the main thread.
+async fn launch_off_main(
+    sessions: Arc<Mutex<HashMap<String, LaunchSession>>>,
+    app_id: String,
+    prefix: String,
+    project: Option<String>,
+) -> Result<LaunchStep, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut map = sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
+        let s = map.entry(app_id.clone()).or_insert_with(LaunchSession::new);
+        Ok(s.launch(&app_id, &prefix, project.as_deref()).clone())
+    })
+    .await
+    .map_err(|e| format!("launch task failed: {e}"))?
 }
 
 /// Convert any error into a string the frontend can display.
@@ -133,15 +164,13 @@ pub fn list_apps(prefix: String) -> Result<Value, String> {
 /// Run the launch loop for `app_id`. Returns the resulting LaunchStep so the UI
 /// can render exactly where it landed (Running, or Failed with the step + reason).
 #[tauri::command]
-pub fn launch_app(
-    state: tauri::State<AppState>,
+pub async fn launch_app(
+    state: tauri::State<'_, AppState>,
     app_id: String,
     prefix: String,
     project: Option<String>,
 ) -> Result<LaunchStep, String> {
-    with_session(&state, &app_id, |s| {
-        s.launch(&app_id, &prefix, project.as_deref()).clone()
-    })
+    launch_off_main(state.sessions.clone(), app_id, prefix, project).await
 }
 
 /// Poll whether `app_id` is still alive (a single kill(pid,0) syscall).
@@ -174,14 +203,12 @@ pub fn current_step_app(state: tauri::State<AppState>, app_id: String) -> Result
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub fn launch_premiere(
-    state: tauri::State<AppState>,
+pub async fn launch_premiere(
+    state: tauri::State<'_, AppState>,
     prefix: String,
     project: Option<String>,
 ) -> Result<LaunchStep, String> {
-    with_session(&state, "premiere", |s| {
-        s.launch("premiere", &prefix, project.as_deref()).clone()
-    })
+    launch_off_main(state.sessions.clone(), "premiere".to_string(), prefix, project).await
 }
 
 #[tauri::command]

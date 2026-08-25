@@ -56,6 +56,13 @@ fn clean_command() -> Command {
         "GST_PLUGIN_SYSTEM_PATH_1_0",
         "GDK_PIXBUF_MODULE_FILE",
         "GDK_PIXBUF_MODULEDIR",
+        // NEUTRON: startup-notification identity. Without these the launched Adobe app inherits
+        // COLLIDER's activation token, so the compositor attributes the new window to Collider and
+        // it shows Collider's icon in the dock. The window should stand on its own identity (Wine
+        // advertises the lowercased exe basename as the Wayland app_id) and be matched to its own
+        // .desktop file, not inherit ours.
+        "DESKTOP_STARTUP_ID",
+        "XDG_ACTIVATION_TOKEN",
     ] {
         cmd.env_remove(var);
     }
