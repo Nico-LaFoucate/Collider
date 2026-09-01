@@ -21,13 +21,37 @@ pub struct Settings {
     /// Wayland-only: pin Premiere's home/Welcome window so it stops loading too
     /// high over the menu bar (Wayland forbids client toplevel positioning, so
     /// winewayland forces it to the top). Applied via the compositor's window-rule
-    /// mechanism (KWin today). Default on; no-op on X11 / unsupported compositors.
+    /// mechanism (KWin today). No-op on X11 / unsupported compositors.
+    ///
+    /// 🚨 DEFAULT OFF since 2026-09-01, and it used to default ON. The KWin rule
+    /// matches "empty caption + wmclass adobe premiere pro.exe", which we believed
+    /// uniquely identified the home overlay. It does not: Premiere's SPLASH also maps
+    /// with an empty caption, so a Force rule pinned the splash to (0,82) too. On a
+    /// build tester's machine that read as "the splash renders top-left every launch,
+    /// starting with the drop", and it was chased through 11.10-69, -69r2, -69r3, -70
+    /// and -71 entirely inside Wine. A Force rule overrides client AND compositor
+    /// placement, so every Wine-side gate we tested came back null for reasons
+    /// unrelated to its merit. `home_window_y` is dev-box-specific as well (82 was
+    /// verified at 4K @ 1.7x; the tester runs 2.25).
+    ///
+    /// Re-enabling needs a predicate that cannot match the splash. Until then the
+    /// underlying issue is cosmetic and drag-to-fix, which is what our own June
+    /// investigation recommended accepting.
     #[serde(default = "default_home_window_fix")]
     pub home_window_fix: bool,
     /// Logical-pixel Y the home window is pinned to. Setup-specific (scale/monitor),
     /// so it's user-tweakable. Default 82 (verified good at 4K @ 1.7×).
     #[serde(default = "default_home_window_y")]
     pub home_window_y: i32,
+
+    /// Bumped when a stored setting must be forcibly corrected on load. Flipping a
+    /// serde default only affects configs MISSING the field, so machines that already
+    /// persisted `home_window_fix: true` would keep the harmful rule and the repair
+    /// would silently do nothing there -- the exact "fix the source, leave the
+    /// artifact" failure this project has hit twice. Migration 1 turns the home-window
+    /// fix off once and removes any rule we previously installed.
+    #[serde(default)]
+    pub settings_migration: u32,
 
     /// Window-decoration color theme: a built-in preset id ("dark" | "light") or
     /// "custom". Drives the .reg written into the prefix on launch (core/theme.rs +
@@ -68,7 +92,7 @@ pub struct PrefixEntry {
     pub path: String,
 }
 
-fn default_home_window_fix() -> bool { true }
+fn default_home_window_fix() -> bool { false }
 fn default_home_window_y() -> i32 { 82 }
 fn default_theme() -> String { "dark".into() }
 fn default_button_icon_set() -> String { "none".into() }
@@ -80,6 +104,7 @@ impl Default for Settings {
             scale_value: None,
             home_window_fix: default_home_window_fix(),
             home_window_y: default_home_window_y(),
+            settings_migration: SETTINGS_MIGRATION,
             theme: default_theme(),
             custom_colors: None,
             button_icon_set: default_button_icon_set(),
@@ -101,6 +126,33 @@ pub fn load() -> Settings {
         Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
         Err(_) => Settings::default(),
     }
+}
+
+/// Current stored-settings migration level. Bump when a persisted value must be
+/// corrected on machines that already wrote it.
+pub const SETTINGS_MIGRATION: u32 = 1;
+
+/// Correct persisted settings that a changed default cannot reach.
+///
+/// Migration 1 (2026-09-01): `home_window_fix` used to default ON and installs a KWin
+/// rule that Force-pins any empty-captioned Premiere window to (0,82). Premiere's
+/// SPLASH is empty-captioned, so the rule mispositions it on every launch. Flipping the
+/// serde default only helps configs that never stored the field; every machine that did
+/// would keep both the setting and the installed rule. So turn it off AND remove the
+/// rule we wrote, then record that we did it.
+pub fn migrate() {
+    let mut s = load();
+    if s.settings_migration >= SETTINGS_MIGRATION {
+        return;
+    }
+    if s.settings_migration < 1 {
+        s.home_window_fix = false;
+        // Remove the rule itself, not just the setting -- repairing the source and
+        // leaving the artifact in place is how this bug survived on a tester's machine.
+        let _ = crate::core::window_rule::apply(&s);
+    }
+    s.settings_migration = SETTINGS_MIGRATION;
+    let _ = save(&s);
 }
 
 /// Persist settings, creating ~/.config/collider/ if needed.
