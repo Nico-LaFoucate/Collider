@@ -130,7 +130,7 @@ pub fn load() -> Settings {
 
 /// Current stored-settings migration level. Bump when a persisted value must be
 /// corrected on machines that already wrote it.
-pub const SETTINGS_MIGRATION: u32 = 1;
+pub const SETTINGS_MIGRATION: u32 = 2;
 
 /// Correct persisted settings that a changed default cannot reach.
 ///
@@ -145,12 +145,24 @@ pub fn migrate() {
     if s.settings_migration >= SETTINGS_MIGRATION {
         return;
     }
+    // Migration 1: the home-window fix defaulted ON and installs a KWin rule that Force-pins
+    // any empty-captioned Premiere window to (0,82) -- which catches the SPLASH. Turn it off.
     if s.settings_migration < 1 {
         s.home_window_fix = false;
-        // Remove the rule itself, not just the setting -- repairing the source and
-        // leaving the artifact in place is how this bug survived on a tester's machine.
-        let _ = crate::core::window_rule::apply(&s);
     }
+    // Migration 2 (2026-09-02): migration 1's kde_remove() only dropped our id from the
+    // [General] rules list and left [neutron-premiere-home] on disk, still reading
+    // positionrule=2 on any machine that had not hand-edited it -- deregistered but armed, one
+    // rules= edit from live. kde_remove() now deletes the stanza's keys, but a machine that
+    // already recorded migration 1 would never run it again, so the corrected code reached only
+    // the machines that never had the problem. Build tester, 2026-09-02: "the improved deletion
+    // reaches machines that never ran 72's Collider, and misses every machine that did. Those
+    // are exactly the machines that have the artefact."
+    //
+    // Keying a corrected migration to a version already marked complete is the same
+    // repair-the-source-leave-the-artifact shape as the two bugs the drop before it fixed. So
+    // both levels end by re-asserting the rule state through the CURRENT removal code.
+    let _ = crate::core::window_rule::apply(&s);
     s.settings_migration = SETTINGS_MIGRATION;
     let _ = save(&s);
 }
