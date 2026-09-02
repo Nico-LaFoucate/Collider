@@ -21,6 +21,17 @@ use crate::core::settings::Settings;
 
 /// Stable kwinrulesrc group id for our rule (so we update, never duplicate).
 const RULE_ID: &str = "neutron-premiere-home";
+
+/// Every key kde_write() writes. kde_remove() deletes exactly these, because dropping the id
+/// from the [General] list leaves the stanza on disk fully populated -- and on a machine that
+/// never hand-edited it, still reading `positionrule=2` (Force), one `rules=` edit away from
+/// live again. A stale group of this name also collides with a future re-enable, which would
+/// write fresh keys over a stanza nobody has audited. Reported by the build tester 2026-09-01
+/// after observing the migration leave an armed orphan behind.
+const RULE_KEYS: &[&str] = &[
+    "Description", "wmclass", "wmclasscomplete", "wmclassmatch",
+    "title", "titlematch", "position", "positionrule",
+];
 const APP_ID: &str = "adobe premiere pro.exe";
 
 /// Can this session's compositor host the home-window rule? (UI gating + skip logic.)
@@ -76,10 +87,16 @@ fn kde_write(y: i32) -> Result<(), String> {
 }
 
 fn kde_remove() -> Result<(), String> {
-    // Drop our id from the [General] rules list (orphan group is harmless) and
-    // reconfigure. We don't error if it wasn't there.
+    // Drop our id from the [General] rules list, THEN delete the stanza's keys. Deregistering
+    // alone leaves the group on disk with positionrule=2 intact; KConfig drops a group once its
+    // last key is gone, and kwriteconfig has no --delete-group. We don't error if it wasn't there.
     let ids: Vec<String> = read_rule_list().into_iter().filter(|x| x != RULE_ID).collect();
     write_rule_list(&ids)?;
+    for k in RULE_KEYS {
+        let _ = display::clean_command(kwriteconfig())
+            .args(["--file", "kwinrulesrc", "--group", RULE_ID, "--key", k, "--delete"])
+            .status();
+    }
     reconfigure()
 }
 
