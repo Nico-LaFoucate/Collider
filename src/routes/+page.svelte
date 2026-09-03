@@ -94,6 +94,21 @@
     await scanSource();
   }
 
+  // Offline only: pick a disc image directly. Mud Hut mounts it read-only for the
+  // scan and again for the install, and unmounts afterwards — nothing is extracted
+  // and nothing is copied, so there is no reason to make the user do it by hand.
+  async function browseSourceIso() {
+    let file;
+    try {
+      file = await open({ directory: false, multiple: false, title: "Choose an Adobe disc image",
+                          filters: [{ name: "Disc image", extensions: ["iso", "img"] }] });
+    } catch (_) { return; }
+    if (!file) return;
+    mhSource = typeof file === "string" ? file : file?.path ?? "";
+    if (!mhSource) return;
+    await scanSource();
+  }
+
   async function scanSource() {
     const src = mhSource.trim();
     if (!src) return;
@@ -704,18 +719,22 @@
                   <b>C:</b> drive, or a copied tree (anything containing
                   <b>Program&nbsp;Files/Adobe</b>). No Adobe sign-in needed.
                 {:else}
-                  Point at an offline package folder — the layout <b>mudhut download</b> stages
-                  (per-app folders with <b>Application.json</b> + payload files). Extract an
-                  ISO first. No Adobe sign-in needed.
+                  Point at an offline package — either a folder in the layout
+                  <b>mudhut download</b> stages (per-app folders with <b>Application.json</b> +
+                  payload files), or an <b>.iso</b> disc image, which is mounted and installed
+                  from directly. No extracting, no copying, no Adobe sign-in needed.
                 {/if}
               </div>
               <div class="mh-target">
-                <label>{mhMethod === "windows" ? "Windows install root" : "Package folder"}</label>
+                <label>{mhMethod === "windows" ? "Windows install root" : "Package folder or .iso"}</label>
                 <div class="mh-source-row">
                   <input bind:value={mhSource} spellcheck="false"
-                         placeholder={mhMethod === "windows" ? "/path/to/drive_c or mounted C:" : "/path/to/package/products"}
+                         placeholder={mhMethod === "windows" ? "/path/to/drive_c or mounted C:" : "/path/to/package/products or /path/to/disc.iso"}
                          onkeydown={(e) => { if (e.key === "Enter") scanSource(); }} />
                   <button class="ghost" onclick={browseSource}>Browse…</button>
+                  {#if mhMethod === "offline"}
+                    <button class="ghost" onclick={browseSourceIso}>Choose ISO…</button>
+                  {/if}
                   <button class="ghost" onclick={scanSource}
                           disabled={!mhSource.trim() || mhScan.phase === "scanning"}>
                     {mhScan.phase === "scanning" ? "Scanning…" : "Scan"}
