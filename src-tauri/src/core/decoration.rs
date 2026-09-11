@@ -51,32 +51,69 @@ pub fn supported() -> bool {
 // ---- 1. prefix colors -----------------------------------------------------
 
 fn apply_prefix_colors(prefix: &str) -> Result<(), String> {
-    // Generate the color .reg from the active theme (preset or custom) and import it.
+    // ⭐ THE ENGINE OWNS THE THEME. Collider is the GUI front end — a graphical way to execute
+    // what the Neutron CLI already does — so it must not carry its own copy of "how a theme is
+    // written into a prefix". It decides WHICH colours (that is the user-facing half); the CLI
+    // decides HOW, and applies the default.
+    //
+    // Before 2026-09-11 this function generated the .reg itself and ran `wine regedit`. Two
+    // consequences, both bad: a prefix provisioned and launched from the CLI or a .desktop entry
+    // never got the theme at all, and when the visual-style fix (ThemeActive=0) was found, it had
+    // to be written here rather than in the engine — so it too would have reached GUI users only.
+    //
+    // ⛔ Do not reintroduce local .reg generation. If the engine needs to do something new with a
+    // theme, add it to `neutron theme` and call it from here.
     let settings = crate::core::settings::load();
-    let colors = crate::core::theme::active_colors(&settings);
-    let reg = crate::core::theme::reg_text(&colors);
 
-    let Some(wine) = wine_bin(prefix) else {
-        return Err("no Neutron wine matches this prefix's stamp; skipping prefix colors \
-                    rather than running distro wine (which would wineboot-clobber it)"
-            .to_string());
+    // Send colours ONLY when the user has actually customized. Otherwise pass nothing and let the
+    // engine write its own default, so there is exactly one definition of "the default theme".
+    let custom: Option<crate::core::theme::ColorMap> = if settings.theme == "custom" {
+        settings.custom_colors.clone().filter(|c| !c.is_empty())
+    } else if settings.theme != "dark" {
+        // A non-default built-in preset (e.g. Light) is a user choice like any other.
+        crate::core::theme::preset(&settings.theme)
+    } else {
+        None
     };
 
-    let tmp = std::env::temp_dir().join("neutron-premiere-dark.reg");
-    std::fs::write(&tmp, reg).map_err(|e| format!("write reg: {e}"))?;
-
-    let out = display::clean_command(&wine)
-        .env("WINEPREFIX", prefix)
-        .env("WINEDEBUG", "-all")
-        .args(["regedit", tmp.to_string_lossy().as_ref()])
-        .output()
-        .map_err(|e| format!("spawn wine regedit: {e}"))?;
-    let _ = std::fs::remove_file(&tmp);
+    let neutron = neutron_bin().ok_or_else(|| "neutron CLI not found on PATH".to_string())?;
+    let mut cmd = display::clean_command(&neutron);
+    cmd.args(["--json", "theme", "apply", "--prefix", prefix]);
+    if custom.is_some() {
+        cmd.args(["--colors", "-"]);
+    }
+    cmd.stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| format!("spawn neutron theme apply: {e}"))?;
+    if let Some(colors) = &custom {
+        use std::io::Write;
+        let json = serde_json::to_string(colors).map_err(|e| format!("serialize colors: {e}"))?;
+        child.stdin.as_mut().ok_or("no stdin on neutron theme apply")?
+            .write_all(json.as_bytes()).map_err(|e| format!("write colors: {e}"))?;
+    }
+    drop(child.stdin.take());
+    let out = child.wait_with_output().map_err(|e| format!("neutron theme apply: {e}"))?;
     if out.status.success() {
         Ok(())
     } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        let so = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        Err(if err.is_empty() { so } else { err })
     }
+}
+
+/// The Neutron CLI. Same resolution the rest of Collider uses for the engine.
+fn neutron_bin() -> Option<String> {
+    if let Ok(p) = std::env::var("NEUTRON_BIN") {
+        if !p.is_empty() { return Some(p); }
+    }
+    for cand in ["neutron"] {
+        if which(cand) { return Some(cand.to_string()); }
+    }
+    let home = std::env::var("HOME").ok()?;
+    let p = format!("{home}/neutron/bin/neutron");
+    if std::path::Path::new(&p).exists() { Some(p) } else { None }
 }
 
 // ---- caption-button icons -------------------------------------------------
@@ -252,33 +289,16 @@ fn which(bin: &str) -> bool {
 mod tests {
     use crate::core::theme;
 
+    // ⛔ The reg_text tests moved to the engine with the code they covered — the .reg format and
+    // the ThemeActive=0 rule are `bin/neutron`'s, tested there. What is worth asserting HERE is
+    // the half Collider still owns: that the presets stay interchangeable.
     #[test]
-    fn light_reg_text_is_well_formed() {
-        let txt = theme::reg_text(&theme::light());
-        assert!(txt.starts_with("REGEDIT4"));
-        assert!(txt.contains("[HKEY_CURRENT_USER\\Control Panel\\Colors]"));
-        assert!(txt.contains("\"ActiveTitle\"=\"245 245 245\""));
-        assert!(txt.contains("\"WindowText\"=\"20 20 20\""));
-        // dark and light expose the same keys, so switching is total
+    fn presets_expose_the_same_keys() {
         assert_eq!(theme::dark().keys().collect::<Vec<_>>(),
-                   theme::light().keys().collect::<Vec<_>>());
-    }
-
-    // The palette is only half the job: Wine's wine.inf turns the bundled Aero visual style on in
-    // every prefix, and comctl32 v6 controls paint from that instead of Control Panel\Colors --
-    // which is why Open/Cancel and the column headers rendered light on a fully dark dialog.
-    // Both presets must switch it off, or the theme stops at the controls.
-    #[test]
-    fn reg_text_disables_the_visual_style() {
-        for (name, colors) in [("dark", theme::dark()), ("light", theme::light())] {
-            let txt = theme::reg_text(&colors);
-            assert!(txt.contains("CurrentVersion\\ThemeManager"), "{name}: no ThemeManager key");
-            assert!(txt.contains("\"ThemeActive\"=\"0\""), "{name}: visual style not disabled");
-            // and it must come AFTER the colors, in its own section
-            let colors_at = txt.find("[HKEY_CURRENT_USER\\Control Panel\\Colors]").unwrap();
-            let theme_at = txt.find("CurrentVersion\\ThemeManager").unwrap();
-            assert!(theme_at > colors_at, "{name}: ThemeManager section precedes the colors");
-        }
+                   theme::light().keys().collect::<Vec<_>>(),
+                   "dark and light must expose the same keys, or switching leaves a colour unset");
+        assert_eq!(theme::preset("dark"), Some(theme::dark()));
+        assert!(theme::preset("nonsense").is_none());
     }
 
     // Live end-to-end: apply the active theme (per ~/.config/collider/config.json) to a
