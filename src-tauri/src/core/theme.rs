@@ -66,6 +66,10 @@ pub fn active_colors(s: &Settings) -> ColorMap {
 ///
 /// # Why this also writes ThemeActive=0
 ///
+/// ⚠️ Terminology: this is the **default Neutron theme** — the dark chrome the whole stack
+/// presents. Collider is one surface that serializes and applies it; it does not own it. Do not
+/// call it "Collider's theme".
+///
 /// A prefix runs TWO independent theming systems, and until 2026-09-11 we drove only one:
 ///
 ///  1. `HKCU\Control Panel\Colors` — the classic palette, what this function writes. Anything
@@ -77,7 +81,7 @@ pub fn active_colors(s: &Settings) -> ColorMap {
 ///
 /// **Upstream Wine turns a visual style on in every prefix**: `loader/wine.inf.in` §`[ThemeManager]`
 /// sets `ThemeActive=1` against the `aero.msstyles` Wine itself ships. Aero carries its own colour
-/// table and it is Windows-default light. So every v6-themed control ignored our dark palette and
+/// table and it is Windows-default light. So every v6-themed control ignored the Neutron theme and
 /// rendered light — on every prefix, on every machine, since the first boot.
 ///
 /// Measured A/B on one throwaway prefix, one variable, sampled by pixel:
