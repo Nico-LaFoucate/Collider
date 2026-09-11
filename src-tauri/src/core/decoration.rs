@@ -264,6 +264,23 @@ mod tests {
                    theme::light().keys().collect::<Vec<_>>());
     }
 
+    // The palette is only half the job: Wine's wine.inf turns the bundled Aero visual style on in
+    // every prefix, and comctl32 v6 controls paint from that instead of Control Panel\Colors --
+    // which is why Open/Cancel and the column headers rendered light on a fully dark dialog.
+    // Both presets must switch it off, or the theme stops at the controls.
+    #[test]
+    fn reg_text_disables_the_visual_style() {
+        for (name, colors) in [("dark", theme::dark()), ("light", theme::light())] {
+            let txt = theme::reg_text(&colors);
+            assert!(txt.contains("CurrentVersion\\ThemeManager"), "{name}: no ThemeManager key");
+            assert!(txt.contains("\"ThemeActive\"=\"0\""), "{name}: visual style not disabled");
+            // and it must come AFTER the colors, in its own section
+            let colors_at = txt.find("[HKEY_CURRENT_USER\\Control Panel\\Colors]").unwrap();
+            let theme_at = txt.find("CurrentVersion\\ThemeManager").unwrap();
+            assert!(theme_at > colors_at, "{name}: ThemeManager section precedes the colors");
+        }
+    }
+
     // Live end-to-end: apply the active theme (per ~/.config/collider/config.json) to a
     // real prefix via the exact production path. Ignored by default; run with:
     //   COLLIDER_TEST_PREFIX=~/.premiere2025 cargo test live_apply_colors -- --ignored

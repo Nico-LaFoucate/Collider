@@ -60,8 +60,40 @@ pub fn active_colors(s: &Settings) -> ColorMap {
     preset(&s.theme).unwrap_or_else(dark)
 }
 
-/// Generate REGEDIT4 text setting HKCU\Control Panel\Colors from a color map.
+/// Generate REGEDIT4 text setting HKCU\Control Panel\Colors from a color map,
+/// and switching the visual style OFF so those colors actually reach the controls.
 /// Matches the format core/decoration.rs imports with `wine regedit`.
+///
+/// # Why this also writes ThemeActive=0
+///
+/// A prefix runs TWO independent theming systems, and until 2026-09-11 we drove only one:
+///
+///  1. `HKCU\Control Panel\Colors` — the classic palette, what this function writes. Anything
+///     painted through `GetSysColor` follows it.
+///  2. A **visual style** (`.msstyles`). `comdlg32` ships a manifest requiring
+///     `Microsoft.Windows.Common-Controls 6.0.0.0`, so its controls are comctl32 v6, and
+///     `comctl32_v6/button.c` paints via `PB_ThemedPaint` whenever `GetWindowTheme()` returns a
+///     theme — never consulting `GetSysColor` at all.
+///
+/// **Upstream Wine turns a visual style on in every prefix**: `loader/wine.inf.in` §`[ThemeManager]`
+/// sets `ThemeActive=1` against the `aero.msstyles` Wine itself ships. Aero carries its own colour
+/// table and it is Windows-default light. So every v6-themed control ignored our dark palette and
+/// rendered light — on every prefix, on every machine, since the first boot.
+///
+/// Measured A/B on one throwaway prefix, one variable, sampled by pixel:
+///
+/// | sample              | ThemeActive=1 | ThemeActive=0 |
+/// |---------------------|---------------|---------------|
+/// | Open button face    | 255,255,255   | 43,43,43      |
+/// | Cancel button face  | 194,194,194   | 86,86,86      |
+/// | column header       | 255,255,255   | 43,43,43      |
+/// | dialog background   | 43,43,43      | 43,43,43      |
+/// | list background     | 43,43,43      | 43,43,43      |
+/// | filename edit       | 43,43,43      | 43,43,43      |
+///
+/// Only the controls that were ignoring the palette changed; everything already correct was
+/// untouched. Turning the style off makes v6 controls fall back to classic painting, which reads
+/// the colours immediately above.
 pub fn reg_text(colors: &ColorMap) -> String {
     let mut out = String::from(
         "REGEDIT4\r\n\r\n\
@@ -71,6 +103,13 @@ pub fn reg_text(colors: &ColorMap) -> String {
     for (k, v) in colors {
         out.push_str(&format!("\"{k}\"=\"{v}\"\r\n"));
     }
+    out.push_str(
+        "\r\n; Wine's wine.inf enables the bundled Aero visual style in every prefix, and\r\n\
+         ; comctl32 v6 controls then paint from IT rather than the palette above.\r\n\
+         ; Switch it off so the theme we just wrote actually reaches them.\r\n\
+         [HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\ThemeManager]\r\n\
+         \"ThemeActive\"=\"0\"\r\n",
+    );
     out
 }
 
