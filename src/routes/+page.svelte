@@ -4,7 +4,7 @@
            importIconSet, adobeAuthBegin, adobeAuthPoll,
            mudhutApps, installApp, workingPrefix,
            listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
-           selectPrefix, provisionPrefix } from "$lib/api.js";
+           selectPrefix, provisionPrefix, fontsCheck, fontsRepair } from "$lib/api.js";
   import AppCard from "$lib/AppCard.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { onMount } from "svelte";
@@ -26,6 +26,11 @@
   let renameText = $state("");
   let provisioning = $state(null);   // path currently provisioning
   let provProgress = $state({ pct: 0, msg: "" });
+  // Fonts row per prefix: path -> the engine's verdict ({status, summary, checks, ...}) or
+  // null while unknown. Filled by loadFonts() after the registry loads; the engine's check is
+  // read-only and never starts wine, so running it for every prefix on tab open is free.
+  let fonts = $state({});
+  let repairingFonts = $state(null);   // path whose fonts are being repaired
   let prefixMsg = $state(null);
   let info = $state(null);        // prefix info result (shared across cards)
   let health = $state(null);      // doctor result
@@ -316,6 +321,50 @@
       prefixes = (await listPrefixes())?.prefixes ?? [];
       discovered = (await discoverPrefixes())?.found ?? [];
     } catch (e) { prefixMsg = String(e); }
+    loadFonts();   // not awaited: the rows render first, the verdicts fill in
+  }
+
+  // One `neutron fonts check` per valid prefix. Advisory, like doctor: a failure to check must
+  // never take the Prefixes tab down with it, so a throw leaves that row's verdict unknown.
+  async function loadFonts() {
+    for (const p of prefixes) {
+      if (!p.valid) continue;
+      try { fonts[p.path] = await fontsCheck(p.path); }
+      catch (e) { fonts[p.path] = null; }
+    }
+  }
+
+  function fontsDot(v) {
+    return v?.status === "good" ? "ok" : v?.status === "warn" ? "warn" : "bad";
+  }
+
+  // The per-check details, one per line, for the row's tooltip.
+  function fontsTitle(v) {
+    if (!v) return "";
+    const lines = (v.checks ?? []).map((c) => `${c.status.toUpperCase()}  ${c.name}: ${c.detail}`);
+    if (v.note) lines.push(`note: ${v.note}`);
+    return lines.join("\n");
+  }
+
+  // Repair = `neutron fonts repair`. Seconds normally; up to a minute when the Microsoft core
+  // fonts have to be fetched. The engine refuses while an Adobe app runs in that prefix, and
+  // its reason is what we show.
+  async function runFontsRepair(path) {
+    repairingFonts = path; prefixMsg = null;
+    try {
+      const r = await fontsRepair(path);
+      fonts[path] = r.after ?? (await fontsCheck(path));
+      prefixMsg = r.ok
+        ? `Fonts repaired in ${path} — apps read fonts at startup, so restart any that are open`
+        : (r.reason ?? "Fonts are still not right after the repair");
+      if (path === prefix) await refresh();   // the sidebar doctor lines include the font checks
+    } catch (e) { prefixMsg = String(e); }
+    finally { repairingFonts = null; }
+  }
+
+  async function recheckFonts(path) {
+    try { fonts[path] = await fontsCheck(path); }
+    catch (e) { prefixMsg = String(e); }
   }
 
   function openPrefixes() { view = "prefixes"; prefixMsg = null; loadPrefixes(); }
@@ -586,6 +635,17 @@
                 {p.apps.join(", ")}
               {:else}no Adobe apps detected{/if}
             </div>
+            {#if p.valid}
+              <div class="pfonts" title={fontsTitle(fonts[p.path])}>
+                <span class="dot {fonts[p.path] ? fontsDot(fonts[p.path]) : ''}"></span>
+                <span class="pfonts-label">Fonts</span>
+                <span class="pfonts-msg">
+                  {#if fonts[p.path] === undefined}checking…
+                  {:else if fonts[p.path] === null}could not check — see the Neutron CLI (`neutron fonts check`)
+                  {:else}{fonts[p.path].summary}{/if}
+                </span>
+              </div>
+            {/if}
           </div>
           <div class="pacts">
             {#if !p.selected && p.valid}
@@ -597,6 +657,20 @@
                     onclick={() => runProvision(p.path)}>
               {provisioning === p.path ? "Provisioning…" : "Provision"}
             </button>
+            {#if p.valid && fonts[p.path] && fonts[p.path].status !== "good"}
+              <button class="ghost sm" disabled={repairingFonts !== null || provisioning !== null
+                                                 || (fonts[p.path].apps_running?.length ?? 0) > 0}
+                      title={(fonts[p.path].apps_running?.length ?? 0) > 0
+                               ? `Close ${fonts[p.path].apps_running.join(", ")} first — apps read fonts at startup`
+                               : "Repair: " + (fonts[p.path].repair ?? []).join("; ") + ". Then re-verify."}
+                      onclick={() => runFontsRepair(p.path)}>
+                {repairingFonts === p.path ? "Repairing…" : "Repair fonts"}
+              </button>
+            {:else if p.valid}
+              <button class="ghost sm" disabled={repairingFonts !== null || provisioning !== null}
+                      title="Re-run the font verification for this prefix (read-only)"
+                      onclick={() => recheckFonts(p.path)}>Check fonts</button>
+            {/if}
             <button class="ghost sm danger" onclick={() => forgetPrefix(p.path)}
                     title="Remove from this list. Does NOT delete the prefix on disk.">Forget</button>
           </div>
@@ -977,6 +1051,7 @@
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: rgba(255,255,255,0.3); }
   .dot.ok { background: #3ce08c; }
   .dot.bad { background: #e24b4a; }
+  .dot.warn { background: #f0b232; }
 
   footer { flex-shrink: 0; padding: 10px 22px; border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: rgba(255,255,255,0.4); }
 
@@ -1082,7 +1157,13 @@
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .papps { font-size: 10.5px; color: rgba(255,255,255,0.32); margin-top: 3px;
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pfonts { display: flex; align-items: center; gap: 7px; margin-top: 5px; font-size: 10.5px;
+            color: rgba(255,255,255,0.55); min-width: 0; }
+  .pfonts-label { color: rgba(255,255,255,0.32); font-size: 9.5px; letter-spacing: 0.05em;
+                  text-transform: uppercase; flex-shrink: 0; }
+  .pfonts-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pacts { display: flex; gap: 6px; flex-shrink: 0; }
+  .pacts button { white-space: nowrap; }   /* five buttons on a row must not wrap "Repair fonts" */
   button.sm { padding: 5px 10px; font-size: 11.5px; }
   button.danger:hover:not(:disabled) { color: #ff6b6b; border-color: rgba(255,107,107,0.4); }
   .disc { margin-top: 18px; }

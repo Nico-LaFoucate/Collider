@@ -88,6 +88,32 @@ spawned PID so Collider can supervise / tie daemon lifecycle to it.
 { "launched": true, "app": "premiere", "pid": 48213, "gpu_mode": "gpu" }
 ```
 
+### `neutron fonts check --prefix <path> [--json]` (added 2026-09-13)
+Font verdict for a prefix. Read-only — never starts wine — so Collider runs it for every
+registered prefix when the Prefixes tab opens. Exit 0 for `good`/`warn`, exit 1 for `bad`
+(a verdict, not a failure: use `run_json_status`, like doctor).
+```json
+{ "ok": true, "prefix": "...", "status": "good|warn|bad",
+  "summary": "one plain-English sentence Collider shows",
+  "checks": [ { "name": "roman-default|cooltype-cache|ms-core-fonts|replacements|registered",
+                "status": "good|warn|bad", "detail": "..." } ],
+  "repair": [ "what `fonts repair` would do, in order" ],
+  "apps_running": [], "note": "only when a wine session is live in the prefix" }
+```
+
+### `neutron fonts repair --prefix <path> [--json]` (added 2026-09-13)
+Restores genuine Microsoft core fonts (from this machine, else `winetricks corefonts`),
+restores the `HKCU\\Software\\Wine\\Fonts\\Replacements` map (Segoe UI and 15 others -> Adobe
+Clean, from the runtime's `fonts.json`), registers everything staged in `windows/Fonts`,
+invalidates CoolType's cache, waits for the registry to reach disk, re-verifies. Exit 3 + `reason` while an Adobe app is running in the
+prefix; exit 1 + `reason` when the resolved runtime would re-stamp the prefix, or when the
+prefix is still `bad` afterwards.
+```json
+{ "ok": true, "prefix": "...", "before": { "status": "bad", "summary": "..." },
+  "steps": [ { "step": "roman_default|ms_core_fonts|font_replacements|font_register|cooltype_cache_invalidate", "ok": true } ],
+  "after": { "status": "good", "summary": "...", "checks": [ ... ] } }
+```
+
 ### `neutron doctor [--prefix <path>] [--json]`
 Health check: stack present? DLL overrides set? deps (ffmpeg, inotify-tools) installed?
 Powers Collider's "is the prefix healthy" status surface.

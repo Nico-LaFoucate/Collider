@@ -190,6 +190,19 @@ pub async fn apply_display_fix(prefix: String) -> Result<Value, String> {
     off_main(move || crate::neutron::apply_display_fix(&prefix).map_err(estr)).await
 }
 
+/// Fonts row on the Prefixes tab: the engine's verdict, verbatim.
+#[tauri::command]
+pub async fn fonts_check(prefix: String) -> Result<Value, String> {
+    off_main(move || crate::neutron::fonts_check(&prefix).map_err(estr)).await
+}
+
+/// The Repair button. Seconds normally; up to a minute when the Microsoft core fonts have to be
+/// fetched (`winetricks corefonts`).
+#[tauri::command]
+pub async fn fonts_repair(prefix: String) -> Result<Value, String> {
+    off_main(move || crate::neutron::fonts_repair(&prefix).map_err(estr)).await
+}
+
 // ---------------------------------------------------------------------------
 // Generic per-app launch surface — Collider's multi-app widgets call these.
 // ---------------------------------------------------------------------------

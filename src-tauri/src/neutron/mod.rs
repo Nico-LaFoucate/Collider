@@ -214,6 +214,24 @@ pub fn doctor(prefix: Option<&str>) -> anyhow::Result<Value> {
     }
 }
 
+/// Font verdict for a prefix (`neutron fonts check`). Read-only in the engine — it never starts
+/// wine — so it is safe to run for every registered prefix on the Prefixes tab. Returns the raw
+/// object `{status: good|warn|bad, summary, checks, repair, apps_running, note?}`; render
+/// `summary` and colour by `status`. Exit 1 means "bad", which is a verdict, not a failure —
+/// hence run_json_status, the same convention as doctor.
+pub fn fonts_check(prefix: &str) -> anyhow::Result<Value> {
+    run_json_status(&["fonts", "check", "--prefix", prefix])
+}
+
+/// Repair a prefix's fonts (`neutron fonts repair`): restore genuine Microsoft core fonts,
+/// register everything staged in windows/Fonts, invalidate CoolType's cache, re-verify. The
+/// engine refuses (exit 3, `reason`) while an Adobe app is running in the prefix, and (exit 1)
+/// through a runtime that would re-stamp it — both surface as the engine's own reason. Collider
+/// owns none of this logic; it is a button.
+pub fn fonts_repair(prefix: &str) -> anyhow::Result<Value> {
+    run_json(&["fonts", "repair", "--prefix", prefix])
+}
+
 /// Provision a prefix, streaming progress.
 ///
 /// `neutron --json --progress prefix provision <p>` emits newline-delimited events

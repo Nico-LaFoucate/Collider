@@ -65,6 +65,18 @@ export async function doctor(prefix = null) {
   return await invoke("doctor", { prefix });
 }
 
+/** Font verdict for a prefix (`neutron fonts check`): {status: good|warn|bad, summary, checks,
+ *  repair, apps_running}. Read-only and fast; the engine never starts wine for it. */
+export async function fontsCheck(prefix) {
+  return await invoke("fonts_check", { prefix });
+}
+
+/** Repair a prefix's fonts (`neutron fonts repair`): {ok, before, steps, after}. Throws with the
+ *  engine's reason when an Adobe app is running in the prefix or the runtime would re-stamp it. */
+export async function fontsRepair(prefix) {
+  return await invoke("fonts_repair", { prefix });
+}
+
 /** Apply the DS.DisableDirectXDisplay fix. Idempotent. Throws on exit 3 (Premiere running). */
 export async function applyDisplayFix(prefix) {
   return await invoke("apply_display_fix", { prefix });

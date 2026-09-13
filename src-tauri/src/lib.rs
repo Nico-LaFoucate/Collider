@@ -28,6 +28,8 @@ pub fn run() {
             commands::provision_prefix,
             commands::doctor,
             commands::apply_display_fix,
+            commands::fonts_check,
+            commands::fonts_repair,
             // generic per-app surface (multi-app widgets)
             commands::list_apps,
             commands::launch_app,
