@@ -18,11 +18,17 @@ use std::path::{Path, PathBuf};
 
 use crate::core::settings::{self, PrefixEntry};
 
-/// Where a brand-new prefix should go. Namespaced under ~/Neutron so sibling prefixes
-/// (side-by-side versions, imports) have somewhere obvious to live, and so it doesn't
-/// collide with an existing ~/Adobe.
+/// Where a brand-new prefix should go. Namespaced so sibling prefixes (side-by-side versions,
+/// imports) have somewhere obvious to live, and so it doesn't collide with an existing ~/Adobe.
+///
+/// ⚠️ NOT `~/Neutron` -- that was the default until 2026-09-14 and it is a trap. The name differs
+/// from the engine's own directory only by case, so `~/Neutron` (prefixes) sits next to `~/neutron`
+/// (the source tree on a dev box) and to `~/.local/share/neutron` (the shipped runtime): confusing
+/// to read, and an outright collision on a case-insensitive filesystem. Operator, 2026-09-14:
+/// "we would have two folders with the same name except one is the actual shipped runtime and the
+/// other is the prefix directory". `-Prefixes` says what it holds and cannot collide.
 pub fn default_new_prefix_path() -> String {
-    home().map(|h| h.join("Neutron/Adobe").to_string_lossy().into_owned())
+    home().map(|h| h.join("Neutron-Prefixes/Adobe").to_string_lossy().into_owned())
         .unwrap_or_default()
 }
 
@@ -84,7 +90,8 @@ pub fn list() -> Vec<PrefixView> {
 
 /// Prefixes present on disk that aren't registered yet, and that actually contain Adobe apps.
 ///
-/// Scans only places a prefix plausibly lives — $HOME's immediate children, ~/Neutron, and the
+/// Scans only places a prefix plausibly lives — $HOME's immediate children, ~/Neutron-Prefixes,
+/// ~/Neutron (the pre-2026-09-14 default, kept so existing installs are not orphaned), and the
 /// XDG data dir beside the runtimes. Deliberately NOT a deep filesystem walk: $HOME can be huge,
 /// and a slow scan on every tab open would be worse than missing an exotic location the user can
 /// still add by hand.
@@ -97,7 +104,15 @@ pub fn discover() -> Vec<String> {
     let Some(h) = home() else { return Vec::new() };
     let known: Vec<String> = settings::load().prefixes.into_iter().map(|e| e.path).collect();
 
-    let mut roots = vec![h.clone(), h.join("Neutron"), h.join(".local/share/neutron/prefixes")];
+    // ⚠️ `Neutron-Prefixes` is the current default; `Neutron` is kept because it WAS the default
+    // until 2026-09-14 and existing installs have prefixes there. Dropping it would orphan them --
+    // discovery is the only thing standing between a user and "no wine prefix found".
+    let mut roots = vec![
+        h.clone(),
+        h.join("Neutron-Prefixes"),
+        h.join("Neutron"),
+        h.join(".local/share/neutron/prefixes"),
+    ];
     roots.retain(|r| r.is_dir());
 
     let mut found = Vec::new();
