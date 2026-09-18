@@ -78,9 +78,9 @@
     stopPolling();
     pollTimer = setInterval(async () => {
       try {
-        if (!(await isAppAlive(app.id))) {
+        if (!(await isAppAlive(app.id, prefix))) {
           stopPolling(); action = "quit";
-          try { step = await cleanExitApp(app.id); } finally { action = null; }
+          try { step = await cleanExitApp(app.id, prefix); } finally { action = null; }
         }
       } catch (e) { stopPolling(); error = String(e); }
     }, 1500);
@@ -92,7 +92,7 @@
     // Claim the pid BEFORE quitting, so the adopt effect cannot resurrect it from a stale
     // list_apps snapshot while the process is on its way out.
     handledPid = app?.pid ?? step.detail?.premiere_pid ?? handledPid;
-    try { stopPolling(); step = await forceQuitApp(app.id); }
+    try { stopPolling(); step = await forceQuitApp(app.id, prefix); }
     catch (e) { error = String(e); }
     finally { busy = false; action = null; }
   }

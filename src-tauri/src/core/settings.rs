@@ -24,7 +24,8 @@ pub struct Settings {
     /// mechanism (KWin today). No-op on X11 / unsupported compositors.
     ///
     /// 🚨 DEFAULT OFF since 2026-09-01, and it used to default ON. The KWin rule
-    /// matches "empty caption + wmclass adobe premiere pro.exe", which we believed
+    /// matches "empty caption + Premiere's wmclass" (the exe name up to runtime 11.10-94,
+    /// `neutron-premiere-<prefix>` from 95 on -- see window_rule.rs), which we believed
     /// uniquely identified the home overlay. It does not: Premiere's SPLASH also maps
     /// with an empty caption, so a Force rule pinned the splash to (0,82) too. On a
     /// build tester's machine that read as "the splash renders top-left every launch,

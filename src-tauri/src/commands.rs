@@ -14,12 +14,28 @@ use serde_json::Value;
 use crate::core::launch::{LaunchSession, LaunchStep};
 use crate::core::settings::Settings;
 
+/// The identity of one supervised session: `(prefix, app_id)`.
+///
+/// 🚨 2026-09-18: this used to be the app id ALONE, with the prefix passed separately. Two
+/// prefixes holding the same app (Premiere 2025 in ~/.premiere2025, Premiere 2026 in
+/// ~/Neutron-Prefixes/Adobe2026) therefore shared ONE slot: launching 2026 overwrote 2025's
+/// pid and prefix in place, the 2025 card's liveness poll then answered for the 2026 process,
+/// and a Force quit from either card tore down whichever prefix had been written LAST. Same bug
+/// class as the engine's `_app_running_pid`: per-app where it must be per-app-PER-PREFIX. Two
+/// exes at two paths are two programs; Windows does not group them by filename either.
+pub type SessionKey = (String, String);
+
+fn session_key(prefix: &str, app_id: &str) -> SessionKey {
+    (prefix.to_string(), app_id.to_string())
+}
+
 /// App-wide state Tauri manages and injects into commands. One supervised launch
-/// session PER app id (several apps can run at once), created on demand.
+/// session PER (prefix, app id) (several apps, in several prefixes, can run at once),
+/// created on demand.
 #[derive(Default)]
 pub struct AppState {
     /// Arc so a launch can be moved onto a worker thread. See launch_app().
-    pub sessions: Arc<Mutex<HashMap<String, LaunchSession>>>,
+    pub sessions: Arc<Mutex<HashMap<SessionKey, LaunchSession>>>,
 }
 
 /// Run a launch OFF the main thread.
@@ -57,9 +73,11 @@ where
         .map_err(|e| format!("task failed: {e}"))?
 }
 
-/// `with_session`, off the main thread.
+/// Run a closure against the (created-on-demand) session for `(prefix, app_id)`, off the main
+/// thread.
 async fn with_session_off_main<T, F>(
-    sessions: Arc<Mutex<HashMap<String, LaunchSession>>>,
+    sessions: Arc<Mutex<HashMap<SessionKey, LaunchSession>>>,
+    prefix: &str,
     app_id: &str,
     f: F,
 ) -> Result<T, String>
@@ -67,24 +85,24 @@ where
     F: FnOnce(&mut LaunchSession) -> T + Send + 'static,
     T: Send + 'static,
 {
-    let app_id = app_id.to_string();
+    let key = session_key(prefix, app_id);
     off_main(move || {
         let mut map = sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
-        let s = map.entry(app_id).or_insert_with(LaunchSession::new);
+        let s = map.entry(key).or_insert_with(LaunchSession::new);
         Ok(f(s))
     })
     .await
 }
 
 async fn launch_off_main(
-    sessions: Arc<Mutex<HashMap<String, LaunchSession>>>,
+    sessions: Arc<Mutex<HashMap<SessionKey, LaunchSession>>>,
     app_id: String,
     prefix: String,
     project: Option<String>,
 ) -> Result<LaunchStep, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut map = sessions.lock().map_err(|_| "session lock poisoned".to_string())?;
-        let s = map.entry(app_id.clone()).or_insert_with(LaunchSession::new);
+        let s = map.entry(session_key(&prefix, &app_id)).or_insert_with(LaunchSession::new);
         Ok(s.launch(&app_id, &prefix, project.as_deref()).clone())
     })
     .await
@@ -93,17 +111,6 @@ async fn launch_off_main(
 
 /// Convert any error into a string the frontend can display.
 fn estr<E: std::fmt::Display>(e: E) -> String { e.to_string() }
-
-/// Run a closure against the (created-on-demand) session for `app_id`.
-fn with_session<R>(
-    state: &tauri::State<AppState>,
-    app_id: &str,
-    f: impl FnOnce(&mut LaunchSession) -> R,
-) -> Result<R, String> {
-    let mut map = state.sessions.lock().map_err(|_| "session lock poisoned")?;
-    let s = map.entry(app_id.to_string()).or_insert_with(LaunchSession::new);
-    Ok(f(s))
-}
 
 #[tauri::command]
 pub async fn prefix_info(prefix: String) -> Result<Value, String> {
@@ -236,67 +243,56 @@ pub async fn adopt_app(
     pid: u32,
 ) -> Result<LaunchStep, String> {
     let id = app_id.clone();
-    with_session_off_main(state.sessions.clone(), &app_id,
-        move |s| s.adopt(&id, &prefix, pid).clone()).await
+    let p = prefix.clone();
+    with_session_off_main(state.sessions.clone(), &prefix, &app_id,
+        move |s| s.adopt(&id, &p, pid).clone()).await
 }
 
-/// Poll whether `app_id` is still alive (a single kill(pid,0) syscall).
+/// Poll whether `app_id` in `prefix` is still alive (a single kill(pid,0) syscall).
 #[tauri::command]
-pub async fn is_app_alive(state: tauri::State<'_, AppState>, app_id: String) -> Result<bool, String> {
-    with_session_off_main(state.sessions.clone(), &app_id, |s| s.is_alive()).await
-}
-
-/// Auto-detected clean exit for `app_id` — the user closed it normally.
-#[tauri::command]
-pub async fn clean_exit_app(state: tauri::State<'_, AppState>, app_id: String) -> Result<LaunchStep, String> {
-    with_session_off_main(state.sessions.clone(), &app_id, |s| s.clean_exit().clone()).await
-}
-
-/// Manual "Force quit" for a hung `app_id`.
-#[tauri::command]
-pub async fn force_quit_app(state: tauri::State<'_, AppState>, app_id: String) -> Result<LaunchStep, String> {
-    with_session_off_main(state.sessions.clone(), &app_id, |s| s.force_quit().clone()).await
-}
-
-/// Poll the current launch step for `app_id`.
-#[tauri::command]
-pub async fn current_step_app(state: tauri::State<'_, AppState>, app_id: String) -> Result<LaunchStep, String> {
-    with_session_off_main(state.sessions.clone(), &app_id, |s| s.step.clone()).await
-}
-
-// ---------------------------------------------------------------------------
-// Premiere-compat wrappers — the current frontend calls these (no app id) until
-// P2 switches to the generic surface. Thin delegates to the "premiere" session.
-// ---------------------------------------------------------------------------
-
-#[tauri::command]
-pub async fn launch_premiere(
+pub async fn is_app_alive(
     state: tauri::State<'_, AppState>,
+    app_id: String,
     prefix: String,
-    project: Option<String>,
+) -> Result<bool, String> {
+    with_session_off_main(state.sessions.clone(), &prefix, &app_id, |s| s.is_alive()).await
+}
+
+/// Auto-detected clean exit for `app_id` in `prefix` — the user closed it normally.
+#[tauri::command]
+pub async fn clean_exit_app(
+    state: tauri::State<'_, AppState>,
+    app_id: String,
+    prefix: String,
 ) -> Result<LaunchStep, String> {
-    launch_off_main(state.sessions.clone(), "premiere".to_string(), prefix, project).await
+    with_session_off_main(state.sessions.clone(), &prefix, &app_id, |s| s.clean_exit().clone()).await
 }
 
+/// Manual "Force quit" for a hung `app_id` in `prefix`.
 #[tauri::command]
-pub async fn is_premiere_alive(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    with_session_off_main(state.sessions.clone(), "premiere", |s| s.is_alive()).await
+pub async fn force_quit_app(
+    state: tauri::State<'_, AppState>,
+    app_id: String,
+    prefix: String,
+) -> Result<LaunchStep, String> {
+    with_session_off_main(state.sessions.clone(), &prefix, &app_id, |s| s.force_quit().clone()).await
 }
 
+/// Poll the current launch step for `app_id` in `prefix`.
 #[tauri::command]
-pub async fn clean_exit(state: tauri::State<'_, AppState>) -> Result<LaunchStep, String> {
-    with_session_off_main(state.sessions.clone(), "premiere", |s| s.clean_exit().clone()).await
+pub async fn current_step_app(
+    state: tauri::State<'_, AppState>,
+    app_id: String,
+    prefix: String,
+) -> Result<LaunchStep, String> {
+    with_session_off_main(state.sessions.clone(), &prefix, &app_id, |s| s.step.clone()).await
 }
 
-#[tauri::command]
-pub async fn force_quit(state: tauri::State<'_, AppState>) -> Result<LaunchStep, String> {
-    with_session_off_main(state.sessions.clone(), "premiere", |s| s.force_quit().clone()).await
-}
-
-#[tauri::command]
-pub async fn current_step(state: tauri::State<'_, AppState>) -> Result<LaunchStep, String> {
-    with_session_off_main(state.sessions.clone(), "premiere", |s| s.step.clone()).await
-}
+// The Premiere-compat wrappers (`launch_premiere`, `is_premiere_alive`, `clean_exit`,
+// `force_quit`, `current_step`) that used to live here were removed 2026-09-18. Nothing in the
+// frontend called them any more (AppCard.svelte uses the generic surface), and each one was a
+// hard-wired global "premiere" session with no prefix at all -- the exact shape of the bug the
+// SessionKey change fixes. Dead code that embeds a known bug is not worth keeping for "compat".
 
 /// Read persisted settings (Preferences). Defaults if no file yet.
 #[tauri::command]

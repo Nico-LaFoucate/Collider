@@ -82,19 +82,12 @@ export async function applyDisplayFix(prefix) {
   return await invoke("apply_display_fix", { prefix });
 }
 
-/** Run the full MVP launch loop. Returns a LaunchStep ({step, detail}).
- *  (the export-dir argument is gone — the hwmux daemon it fed was retired from the engine)
- *  to the prefix's resolved Documents path. */
-export async function launchPremiere(prefix, project = null) {
-  return await invoke("launch_premiere", { prefix, project });
-}
-
-/** Poll whether Premiere is still running. Called on a timer while Running. */
-export async function isPremiereAlive() {
-  return await invoke("is_premiere_alive");
-}
-
 // --- Generic per-app surface (multi-app widgets) -------------------------------
+//
+// Every session call carries BOTH the app id and the prefix: a session is one app in one prefix.
+// (2026-09-18: it was keyed by app id alone, so Premiere 2025 and Premiere 2026 shared a slot and
+// one card polled, and force-quit, the other prefix's process.) The old prefix-less
+// launchPremiere/isPremiereAlive/cleanExit/forceQuit/currentStep wrappers are gone with it.
 
 /** The app catalog + install status for a prefix.
  *  Returns { apps: [ { id, name, accent, export, installed, exe }, ... ] }. */
@@ -107,9 +100,9 @@ export async function launchApp(appId, prefix, project = null) {
   return await invoke("launch_app", { appId, prefix, project });
 }
 
-/** Poll whether app `appId` is still running. Called on a timer while Running. */
-export async function isAppAlive(appId) {
-  return await invoke("is_app_alive", { appId });
+/** Poll whether app `appId` in `prefix` is still running. Called on a timer while Running. */
+export async function isAppAlive(appId, prefix) {
+  return await invoke("is_app_alive", { appId, prefix });
 }
 
 /** Adopt an app that is already running — started from the application menu, or left over from a
@@ -120,34 +113,19 @@ export async function adoptApp(appId, prefix, pid) {
   return await invoke("adopt_app", { appId, prefix, pid });
 }
 
-/** Auto-detected clean exit for `appId` (user closed it). Resets to idle. */
-export async function cleanExitApp(appId) {
-  return await invoke("clean_exit_app", { appId });
+/** Auto-detected clean exit for `appId` in `prefix` (user closed it). Resets to idle. */
+export async function cleanExitApp(appId, prefix) {
+  return await invoke("clean_exit_app", { appId, prefix });
 }
 
-/** Manual force-quit for a hung `appId`. */
-export async function forceQuitApp(appId) {
-  return await invoke("force_quit_app", { appId });
+/** Manual force-quit for a hung `appId` in `prefix`. */
+export async function forceQuitApp(appId, prefix) {
+  return await invoke("force_quit_app", { appId, prefix });
 }
 
-/** Poll the current launch step for `appId`. */
-export async function currentStepApp(appId) {
-  return await invoke("current_step_app", { appId });
-}
-
-/** Auto-detected clean exit — user closed Premiere. Stops muxer, resets to idle. */
-export async function cleanExit() {
-  return await invoke("clean_exit");
-}
-
-/** Manual force-quit from the Running button's dropdown (for a hung Premiere). */
-export async function forceQuit() {
-  return await invoke("force_quit");
-}
-
-/** Poll the current launch step for the status surface. */
-export async function currentStep() {
-  return await invoke("current_step");
+/** Poll the current launch step for `appId` in `prefix`. */
+export async function currentStepApp(appId, prefix) {
+  return await invoke("current_step_app", { appId, prefix });
 }
 
 /** Read persisted settings (Preferences). Returns the full Settings object, incl.

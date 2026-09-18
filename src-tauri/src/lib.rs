@@ -38,12 +38,6 @@ pub fn run() {
             commands::clean_exit_app,
             commands::force_quit_app,
             commands::current_step_app,
-            // premiere-compat (current frontend, until P2)
-            commands::launch_premiere,
-            commands::is_premiere_alive,
-            commands::clean_exit,
-            commands::force_quit,
-            commands::current_step,
             commands::get_settings,
             commands::set_settings,
             commands::detect_scale,

@@ -8,8 +8,18 @@
 // so Collider writes a window rule that matches the home overlay and forces its Y.
 //
 // The home overlay is uniquely identified by an EMPTY window title (the main frame's
-// title is "Adobe Premiere Pro 2025"); both share app_id `adobe premiere pro.exe`
-// (winewayland sets app_id = lowercased exe basename).
+// title is "Adobe Premiere Pro 2025"); both share the app's Wayland app_id.
+//
+// 🚨 WHICH app_id. Up to runtime 11.10-94 winewayland advertised the lowercased exe basename,
+// `adobe premiere pro.exe` -- identical for every prefix, which is what let one prefix's window
+// be attributed to another's launcher. Since 11.10-95 the engine's `neutron launch` and its
+// generated .desktop entries set NEUTRON_WAYLAND_APP_ID to the entry's basename,
+// `neutron-<app>-<prefix slug>` (e.g. `neutron-premiere-premiere2025`,
+// `neutron-premiere-adobe2026`), and winewayland honours it. The rule therefore matches the
+// SUBSTRING `neutron-premiere-`, which every prefix's Premiere carries and nothing else does. A
+// rule still reading the exe name matches nothing on 95+ (it was disabled by default, so this
+// was latent, not live -- found 2026-09-18). The naming is the ENGINE's
+// (`register_app_desktop_entries` in bin/neutron); this string mirrors it and must follow it.
 //
 // KDE/KWin is implemented (via kwriteconfig6 + a KWin reconfigure, merging into
 // kwinrulesrc rather than clobbering other rules). sway/hyprland are clearly-marked
@@ -32,7 +42,10 @@ const RULE_KEYS: &[&str] = &[
     "Description", "wmclass", "wmclasscomplete", "wmclassmatch",
     "title", "titlematch", "position", "positionrule",
 ];
-const APP_ID: &str = "adobe premiere pro.exe";
+/// Substring of the app_id every prefix's Premiere advertises under 11.10-95+ (see header).
+/// ⚠️ Only the VALUE changed on 2026-09-18; RULE_KEYS is deliberately identical, so kde_remove()
+/// still deletes a stanza written by an older Collider key-for-key -- no armed orphan.
+const APP_ID: &str = "neutron-premiere-";
 
 /// Can this session's compositor host the home-window rule? (UI gating + skip logic.)
 pub fn supported() -> bool {
@@ -56,8 +69,8 @@ pub fn apply(settings: &Settings) -> Result<bool, String> {
                 Ok(false)
             }
         }
-        // TODO sway: `swaymsg for_window [app_id="adobe premiere pro.exe" title="^$"] move position 0 <y>`
-        // TODO hyprland: `hyprctl keyword windowrulev2 "move 0 <y>, class:^(adobe premiere pro.exe)$, title:^$"`
+        // TODO sway: `swaymsg for_window [app_id="^neutron-premiere-" title="^$"] move position 0 <y>`
+        // TODO hyprland: `hyprctl keyword windowrulev2 "move 0 <y>, class:^(neutron-premiere-), title:^$"`
         // GNOME/Mutter: no equivalent — X11 fallback is the answer there.
         _ => Ok(false),
     }
