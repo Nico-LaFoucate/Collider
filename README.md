@@ -64,7 +64,7 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 
 ### Compatibility
 
-- Per-app fix manager — enable/disable tweaks per app with cascading defaults, Steam/Lutris-style (see [docs/ROADMAP.md](docs/ROADMAP.md))
+- Per-app fix manager — enable/disable tweaks per app with cascading defaults, Steam/Lutris-style
 - DLL override manager with per-DLL status indicators
 - Wine version switcher
 - Plain-English compatibility check on first launch
@@ -113,7 +113,7 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 
 Collider does not include, distribute, or facilitate the acquisition of any proprietary software. Users are responsible for ensuring they have appropriate licenses for any software they run through Collider and Neutron.
 
-Adobe, Premiere Pro, After Effects, Photoshop, Audition, and Illustrator are trademarks of Adobe Inc. Nico LaFoucate, Ficus Media Group, Smack Studio and Collider are not affiliated with or endorsed by Adobe Inc.
+Neutron is an independent project by Nico LaFoucate and Ficus Media Group. Adobe and its product names are trademarks of Adobe Inc. Neutron is not affiliated with or endorsed by Adobe.
 
 -----
 
@@ -121,7 +121,7 @@ Adobe, Premiere Pro, After Effects, Photoshop, Audition, and Illustrator are tra
 
 Collider is licensed under the [Apache License 2.0](LICENSE).
 
-Neutron is licensed under the GNU Lesser General Public License v2.1, inherited from [Wine](https://www.winehq.org/).
+Neutron (the CLI) and neutron-wine are licensed under the GNU Lesser General Public License, version 2.1 or later (`LGPL-2.1-or-later`), the same as [Wine](https://www.winehq.org/).
 
 -----
 
