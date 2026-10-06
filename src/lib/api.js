@@ -159,30 +159,37 @@ export async function importIconSet(dir) {
   return await invoke("import_icon_set", { dir });
 }
 
-/** Detect the primary monitor's display scale (for the Preferences readout). May be null. */
+/** The desktop's display scale as the engine sees it (`neutron display`):
+ *  { scale, output, source, dpi, windows_step, warning }. Throws if the CLI could not tell. */
 export async function detectScale() {
   return await invoke("detect_scale");
+}
+
+// --- Neutron itself -------------------------------------------------------------
+
+/** Every piece's version: { cli, neutron_wine, mudhut, collider, ... }. `cli: null` means the
+ *  Neutron CLI is not installed yet. */
+export async function versions() {
+  return await invoke("versions");
+}
+
+/** `neutron setup` (update=false) or `neutron update` (update=true), streaming progress events
+ *  to `onEvent` like provisioning. Resolves with the result; rejects with what failed. */
+export async function neutronSetup(update, onEvent) {
+  const channel = new Channel();
+  channel.onmessage = (ev) => onEvent?.(ev);
+  return await invoke("neutron_setup", { update, onEvent: channel });
+}
+
+/** `neutron uninstall`. Prefixes are deleted only when deletePrefixes is true. */
+export async function neutronUninstall(deletePrefixes) {
+  return await invoke("neutron_uninstall", { deletePrefixes });
 }
 
 /** Compositor capability: { wayland, desktop, home_rule_supported }. Used to gate the
  *  Wayland home-window-position control in Preferences. */
 export async function compositorInfo() {
   return await invoke("compositor_info");
-}
-
-// --- Mud Hut installer: Adobe sign-in (device/QR flow) -------------------------
-
-/** Begin Adobe sign-in. Returns { url, qr, request_id, device_id }.
- *  `qr` is base64 PNG (prefix with "data:image/png;base64,"). */
-export async function adobeAuthBegin() {
-  return await invoke("adobe_auth_begin");
-}
-
-/** Poll the sign-in once. Returns { status: "pending"|"complete"|"expired",
- *  retry_interval, exchange? }. Frontend calls this every retry_interval seconds
- *  until status !== "pending". */
-export async function adobeAuthPoll(requestId, deviceId) {
-  return await invoke("adobe_auth_poll", { requestId, deviceId });
 }
 
 // --- Mud Hut installer: app catalog + streaming install ------------------------

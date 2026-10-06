@@ -181,9 +181,8 @@ pub fn save(s: &Settings) -> std::io::Result<()> {
     std::fs::write(&p, json)
 }
 
-/// The display scale to pass to the engine: the manual override when set, else
-/// the detected primary-monitor scale, else None (engine auto-detects). This is
-/// the "auto unless overridden" rule the Preferences scale control drives.
+/// The display scale to pass to the engine: the manual override when set, else None, and
+/// `neutron launch` detects the desktop's scale itself (the one detector, DECISIONS C4b).
 pub fn effective_scale() -> Option<f64> {
     let s = load();
     if s.scale_mode == "manual" {
@@ -193,5 +192,5 @@ pub fn effective_scale() -> Option<f64> {
             }
         }
     }
-    crate::core::display::detect_display_scale()
+    None
 }

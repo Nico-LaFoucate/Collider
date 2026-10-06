@@ -102,7 +102,7 @@ registered prefix when the Prefixes tab opens. Exit 0 for `good`/`warn`, exit 1 
 ```
 
 ### `neutron fonts repair --prefix <path> [--json]` (added 2026-09-13)
-Restores genuine Microsoft core fonts (from this machine, else `winetricks corefonts`),
+Restores genuine Microsoft core fonts (from this machine, else Microsoft's font installers),
 restores the `HKCU\\Software\\Wine\\Fonts\\Replacements` map (Segoe UI and 15 others -> Adobe
 Clean, from the runtime's `fonts.json`), registers everything staged in `windows/Fonts`,
 invalidates CoolType's cache, waits for the registry to reach disk, re-verifies. Exit 3 + `reason` while an Adobe app is running in the
@@ -113,6 +113,35 @@ prefix is still `bad` afterwards.
   "steps": [ { "step": "roman_default|ms_core_fonts|font_replacements|font_register|cooltype_cache_invalidate", "ok": true } ],
   "after": { "status": "good", "summary": "...", "checks": [ ... ] } }
 ```
+
+### `neutron display [--json]` (added 2026-10-05)
+The desktop's display scale, the only scale detector (KDE, GNOME, Sway, Hyprland, generic
+Wayland). Collider shows it in Preferences and passes `--scale` to `launch` only for a manual
+override.
+```json
+{ "ok": true, "scale": 1.75, "output": "DP-1", "source": "kde", "dpi": 168,
+  "windows_step": true, "warning": null }
+```
+
+### `neutron setup` / `neutron update` `[--json --progress]` (added 2026-10-05)
+Install / update everything: the CLI, neutron-wine, Microsoft's components, Mud Hut (and Adobe's
+ACCCx), Collider, ntsync (may show the desktop's password dialog once). `update` also moves every
+prefix onto the new runtime. Streams `progress` events, then a result:
+`{ "ok": bool, "steps": [ { "step", "ok", "version"?, "detail"? } ] }`. Collider's Set up /
+Update buttons; when the CLI is missing, Collider downloads it from the neutron repo's latest
+release (checked against `SHA256SUMS`) and runs its `setup`.
+
+### `neutron uninstall --yes [--delete-prefixes] [--json]` (added 2026-10-05)
+Removes what setup installed, Collider's settings and the KWin script/rule. Prefixes only with
+`--delete-prefixes` (Collider asks separately; default keep).
+
+### `neutron theme icons --prefix <path> (--from <dir> [--name <id>] | --off) [--json]` (added 2026-10-05)
+Installs a window-button icon set (close/min/max/restore `.ico` in `<dir>`) into the prefix and
+writes `HKCU\Software\Neutron\Caption`. Collider owns the sets and passes a folder.
+
+### `neutron window-rule premiere-home (--y <px> | --off) [--json]` (added 2026-10-05)
+The optional KWin rule keeping Premiere's home screen below the menu bar.
+`{ "ok": true, "supported": bool, "enabled": bool }`.
 
 ### `neutron doctor [--prefix <path>] [--json]`
 Health check: stack present? DLL overrides set? deps (ffmpeg, inotify-tools) installed?

@@ -22,6 +22,11 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    // `--version` answers without opening a window (bug reports, `neutron --version`).
+    if std::env::args().skip(1).any(|a| a == "--version" || a == "-V") {
+        println!("Collider {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     setup_runtime_env();
     collider_lib::run()
 }

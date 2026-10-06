@@ -45,9 +45,10 @@ pub fn run() {
             commands::get_theme_presets,
             commands::get_icon_sets,
             commands::import_icon_set,
-            // Mud Hut installer — Adobe sign-in (device/QR flow)
-            commands::adobe_auth_begin,
-            commands::adobe_auth_poll,
+            // Neutron itself
+            commands::neutron_setup,
+            commands::neutron_uninstall,
+            commands::versions,
             // Mud Hut installer — app catalog + streaming install
             commands::mudhut_apps,
             commands::install_app,

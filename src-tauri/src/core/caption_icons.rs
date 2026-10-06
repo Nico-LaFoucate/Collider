@@ -1,14 +1,11 @@
 // core/caption_icons.rs
 //
-// Custom window-button (caption) icon sets for the Neutron CSD frame. The Neutron wine
-// build's user32 draws per-button .ico files over the themed button background when
+// Custom window-button (caption) icon sets for the Neutron CSD frame. The Neutron wine build's
+// user32 draws per-button .ico files over the themed button background when
 // HKCU\Software\Neutron\Caption\Enabled is set (see neutron-wine neutron-caption-buttons).
-// This module ships the bundled sets (embedded in the Collider binary) and installs a
-// chosen set into a prefix: it copies close/min/max/restore.ico into
-// drive_c/windows/neutron/caption/<id>/ and returns the Windows path for the registry.
-//
-// Imported (user) sets live on disk under the Collider config dir (see import_set) and
-// are installed the same way by path rather than from the embedded table.
+// This module owns the SETS: the bundled ones (embedded in the Collider binary), the user's
+// imported one, and their previews. Putting a set into a prefix is the engine's job:
+// `neutron theme icons --prefix P --from <folder>` (DECISIONS C20). Collider hands it a folder.
 
 use std::path::Path;
 
@@ -53,53 +50,28 @@ fn bundled(id: &str) -> Option<IconSet> {
     }
 }
 
-/// Where a chosen set's icons are placed inside the prefix.
-fn prefix_icon_dir(prefix: &str, id: &str) -> String {
-    format!("{prefix}/drive_c/windows/neutron/caption/{id}")
-}
-
-/// The Windows-side path Wine reads (mirrors prefix_icon_dir).
-fn windows_icon_dir(id: &str) -> String {
-    format!("C:\\windows\\neutron\\caption\\{id}")
-}
-
-/// Install the icon set `id` into `prefix`. Returns:
-///   Ok(Some(windows_dir)) -> custom icons should be enabled, pointing here
-///   Ok(None)              -> "none": custom icons should be disabled
-/// For "custom", icons are copied from the imported-set dir under the Collider config.
-pub fn install(id: &str, prefix: &str) -> Result<Option<String>, String> {
+/// A folder holding the set's close/min/max/restore .ico files, for `neutron theme icons
+/// --from`: bundled sets are written out to ~/.cache/collider/caption-icons/<id>/, the imported
+/// set is its own folder. Ok(None) for "none" (Wine's default glyphs).
+pub fn materialize(id: &str) -> Result<Option<std::path::PathBuf>, String> {
     if id == "none" || id.is_empty() {
         return Ok(None);
     }
-
-    let dest = prefix_icon_dir(prefix, id);
-    std::fs::create_dir_all(&dest).map_err(|e| format!("mkdir {dest}: {e}"))?;
-
-    if let Some(set) = bundled(id) {
-        for (name, bytes) in set {
-            std::fs::write(format!("{dest}/{name}"), bytes)
-                .map_err(|e| format!("write {name}: {e}"))?;
-        }
-    } else if id == "custom" {
-        // Copy whatever .ico files the user imported.
-        let src = custom_set_dir().ok_or("no HOME for custom icons")?;
-        let mut copied = 0;
-        for name in ["close.ico", "min.ico", "max.ico", "restore.ico"] {
-            let from = src.join(name);
-            if from.exists() {
-                std::fs::copy(&from, format!("{dest}/{name}"))
-                    .map_err(|e| format!("copy {name}: {e}"))?;
-                copied += 1;
-            }
-        }
-        if copied == 0 {
+    if id == "custom" {
+        let dir = custom_set_dir().ok_or("no HOME for custom icons")?;
+        if !dir.join("close.ico").exists() {
             return Err("no imported icons found".into());
         }
-    } else {
-        return Err(format!("unknown icon set: {id}"));
+        return Ok(Some(dir));
     }
-
-    Ok(Some(windows_icon_dir(id)))
+    let set = bundled(id).ok_or_else(|| format!("unknown icon set: {id}"))?;
+    let home = std::env::var_os("HOME").ok_or("no HOME")?;
+    let dir = Path::new(&home).join(".cache/collider/caption-icons").join(id);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+    for (name, bytes) in set {
+        std::fs::write(dir.join(name), bytes).map_err(|e| format!("write {name}: {e}"))?;
+    }
+    Ok(Some(dir))
 }
 
 /// Raw .ico bytes for one button of a set (bundled from the embedded table, or read from

@@ -203,8 +203,8 @@ pub async fn fonts_check(prefix: String) -> Result<Value, String> {
     off_main(move || crate::neutron::fonts_check(&prefix).map_err(estr)).await
 }
 
-/// The Repair button. Seconds normally; up to a minute when the Microsoft core fonts have to be
-/// fetched (`winetricks corefonts`).
+/// The Repair button. Seconds normally; longer when the Microsoft core fonts have to be
+/// downloaded first.
 #[tauri::command]
 pub async fn fonts_repair(prefix: String) -> Result<Value, String> {
     off_main(move || crate::neutron::fonts_repair(&prefix).map_err(estr)).await
@@ -333,11 +333,47 @@ pub fn compositor_info() -> Result<Value, String> {
     }))
 }
 
-/// Detect the primary monitor's display scale (for the Preferences "Auto" readout).
-/// None => couldn't detect (engine would auto-detect / fall back at launch).
+/// The desktop's display scale as the engine sees it (`neutron display`), for the Preferences
+/// "Auto" readout: `{scale, output, source, dpi, windows_step, warning}`.
 #[tauri::command]
-pub fn detect_scale() -> Result<Option<f64>, String> {
-    Ok(crate::core::display::detect_display_scale())
+pub async fn detect_scale() -> Result<Value, String> {
+    off_main(|| crate::neutron::display().map_err(estr)).await
+}
+
+// ---------------------------------------------------------------------------
+// Neutron itself: set up / update / uninstall / versions (the engine does the work).
+// ---------------------------------------------------------------------------
+
+/// `neutron setup` (or `neutron update`), streaming progress over `on_event`. Minutes: it
+/// downloads neutron-wine, Microsoft's components, Mud Hut and Adobe's ACCCx. May show the
+/// desktop's password dialog once, to turn on ntsync.
+#[tauri::command]
+pub async fn neutron_setup(update: bool, on_event: tauri::ipc::Channel<Value>) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::neutron::setup_stream(update, |ev| {
+            let _ = on_event.send(ev);
+        })
+        .map_err(estr)
+    })
+    .await
+    .map_err(estr)?
+}
+
+/// `neutron uninstall`; the confirmation (and the separate prefixes question) is the UI's.
+#[tauri::command]
+pub async fn neutron_uninstall(delete_prefixes: bool) -> Result<Value, String> {
+    off_main(move || crate::neutron::uninstall(delete_prefixes).map_err(estr)).await
+}
+
+/// Every piece's version, plus Collider's own. `cli: null` means the CLI is not installed.
+#[tauri::command]
+pub async fn versions() -> Result<Value, String> {
+    off_main(|| {
+        let mut v = crate::neutron::version().unwrap_or_else(|_| serde_json::json!({ "cli": null }));
+        v["collider"] = serde_json::json!(env!("CARGO_PKG_VERSION"));
+        Ok(v)
+    })
+    .await
 }
 
 /// Built-in decoration themes for the Appearance panel: each entry is
@@ -394,23 +430,9 @@ pub fn import_icon_set(dir: String) -> Result<u32, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Mud Hut installer — Adobe sign-in (device/QR flow, driven via `mudhut auth`).
-// begin() once to mint the QR+link, then the frontend polls poll() every few
-// seconds until status == "complete" (same pattern as the launch/current_step).
+// Mud Hut installer. No sign-in anywhere: Adobe's feed and CDN are public, and licensing happens
+// inside the app on first launch.
 // ---------------------------------------------------------------------------
-
-/// Begin Adobe sign-in: returns { url, qr, request_id, device_id }.
-#[tauri::command]
-pub fn adobe_auth_begin() -> Result<Value, String> {
-    crate::mudhut::auth_begin().map_err(estr)
-}
-
-/// Poll the sign-in once: returns { status: pending|complete|expired,
-/// retry_interval, exchange? }.
-#[tauri::command]
-pub fn adobe_auth_poll(request_id: String, device_id: String) -> Result<Value, String> {
-    crate::mudhut::auth_poll(&request_id, &device_id).map_err(estr)
-}
 
 /// The installable-app catalog (`mudhut apps [--source]`). Powers the install
 /// wizard's app picker.

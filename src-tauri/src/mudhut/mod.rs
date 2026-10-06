@@ -104,7 +104,7 @@ pub fn install_stream(
             continue;
         }
         let Ok(v) = serde_json::from_str::<Value>(t) else {
-            continue; // interleaved wine/winetricks output — skip
+            continue; // interleaved wine output — skip
         };
         match v.get("event").and_then(|e| e.as_str()) {
             Some("result") => terminal = Some(v.clone()),
@@ -126,16 +126,4 @@ pub fn install_stream(
         return Err(anyhow!("mudhut install exited with code {}", status.code().unwrap_or(-1)));
     }
     terminal.ok_or_else(|| anyhow!("mudhut install finished without a result"))
-}
-
-/// Begin Adobe sign-in: mint the QR + login link.
-/// Returns `{ event:"result", url, qr, request_id, device_id }`.
-pub fn auth_begin() -> anyhow::Result<Value> {
-    run_json(&["auth", "begin"])
-}
-
-/// Poll the sign-in once; runs the token exchange when the user has signed in.
-/// Returns `{ event:"result", status, retry_interval, exchange? }`.
-pub fn auth_poll(request_id: &str, device_id: &str) -> anyhow::Result<Value> {
-    run_json(&["auth", "poll", "--request-id", request_id, "--device-id", device_id])
 }

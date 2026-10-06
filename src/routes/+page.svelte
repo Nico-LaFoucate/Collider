@@ -1,7 +1,7 @@
 <script>
   import { prefixInfo, doctor, listApps,
            getSettings, setSettings, detectScale, compositorInfo, getThemePresets, getIconSets,
-           importIconSet, adobeAuthBegin, adobeAuthPoll,
+           importIconSet, versions, neutronSetup, neutronUninstall,
            mudhutApps, installApp, workingPrefix,
            listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
            selectPrefix, provisionPrefix, fontsCheck, fontsRepair } from "$lib/api.js";
@@ -42,17 +42,11 @@
   let view = $state("apps");                    // "apps" | "prefixes" | "mudhut" | "preferences"
 
   // --- Mud Hut installer ---
-  // Which install method the user picked in the Mud Hut tab. null = show the menu.
-  // "windows" (copy) and "offline" need NO Adobe sign-in; only "download" does.
+  // Which install method the user picked in the Mud Hut tab. null = show the menu. No method
+  // needs an Adobe sign-in; licensing happens inside the app on first launch.
   let mhMethod = $state(null);   // null | "windows" | "offline" | "download"
 
-  // Adobe sign-in (device/QR flow) — only used by the "download" method.
-  // phase: idle | starting | waiting | done | expired | error
-  let auth = $state({ phase: "idle", url: null, qr: null,
-                      requestId: null, deviceId: null, status: null, error: null });
-  let authTimer = null;
-
-  // --- Mud Hut install wizard (post-sign-in for download) ---
+  // --- Mud Hut install wizard ---
   let mhCatalog = $state([]);       // installable apps from mudhutApps()
   let mhTarget = $state("");  // install target prefix (editable); seeded from $HOME at startup
   // phase: pick | installing | done | error
@@ -72,8 +66,8 @@
     mhScan.phase === "done" && mhScan.kind !== null &&
     (mhMethod === "windows" || mhMethod === "offline") && mhScan.kind !== mhMethod);
 
-  function openMudHut() { view = "mudhut"; mhMethod = null; cancelSignIn(); resetInstall(); resetSource(); }
-  function backToMethods() { cancelSignIn(); mhMethod = null; resetInstall(); resetSource(); }
+  function openMudHut() { view = "mudhut"; mhMethod = null; resetInstall(); resetSource(); }
+  function backToMethods() { mhMethod = null; resetInstall(); resetSource(); }
   function resetInstall() {
     mhInstall = { phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null };
   }
@@ -153,41 +147,56 @@
     }
   }
 
-  async function startSignIn() {
-    if (authTimer) { clearTimeout(authTimer); authTimer = null; }
-    auth = { phase: "starting", url: null, qr: null, requestId: null, deviceId: null, status: null, error: null };
-    try {
-      const b = await adobeAuthBegin();
-      auth = { ...auth, phase: "waiting", url: b.url, qr: b.qr,
-               requestId: b.request_id, deviceId: b.device_id, status: "pending" };
-      pollSignIn();
-    } catch (e) {
-      auth = { ...auth, phase: "error", error: String(e) };
-    }
-  }
-
-  async function pollSignIn() {
-    if (auth.phase !== "waiting") return;
-    try {
-      const r = await adobeAuthPoll(auth.requestId, auth.deviceId);
-      auth = { ...auth, status: r.status };
-      if (r.status === "complete") { auth = { ...auth, phase: "done" }; loadCatalog(); return; }
-      if (r.status === "expired")  { auth = { ...auth, phase: "expired" }; return; }
-      authTimer = setTimeout(pollSignIn, ((r.retry_interval ?? 5) * 1000));
-    } catch (e) {
-      auth = { ...auth, phase: "error", error: String(e) };
-    }
-  }
-
-  function cancelSignIn() {
-    if (authTimer) { clearTimeout(authTimer); authTimer = null; }
-    auth = { phase: "idle", url: null, qr: null, requestId: null, deviceId: null, status: null, error: null };
-  }
   let settings = $state({ scale_mode: "auto", scale_value: 1.5, home_window_fix: true, home_window_y: 82,
                           theme: "dark", custom_colors: null, button_icon_set: "none" });
   let iconSets = $state([]);                                  // [{ id, label }] from the backend
-  let detectedScale = $state(null);                           // live primary-monitor scale, for reference
+  let detectedScale = $state(null);                           // `neutron display`: { scale, dpi, windows_step, warning, ... }
   let compositor = $state(null);                              // { wayland, desktop, home_rule_supported }
+  // The Windows scale steps (DECISIONS C21): Adobe's UI is laid out for these, and anything in
+  // between renders slightly off.
+  const SCALE_STEPS = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 3];
+  const pct = (s) => Math.round(s * 100) + "%";
+
+  // --- Neutron itself: versions, set up, update, uninstall ---
+  let vers = $state(null);              // { cli, neutron_wine, mudhut, collider }
+  let neutronReady = $derived(!!(vers?.cli && vers?.neutron_wine));
+  // phase: idle | running | done | error; kind: setup | update
+  let nrun = $state({ phase: "idle", kind: null, stage: "", msg: "", error: null });
+  let confirmUninstall = $state(false);
+  let uninstallPrefixes = $state(false);
+  let uninstalled = $state(null);       // the uninstall result, once it has run
+
+  async function loadVersions() {
+    try { vers = await versions(); } catch (_) { vers = { cli: null }; }
+  }
+
+  // Set up (first run) or Update: the engine does the work and streams its progress.
+  async function runNeutron(kind) {
+    nrun = { phase: "running", kind, stage: "starting", msg: "", error: null };
+    try {
+      await neutronSetup(kind === "update", (ev) => {
+        if (ev.event === "progress") {
+          if (ev.stage) nrun.stage = ev.stage;
+          if (ev.msg) nrun.msg = ev.msg;
+        } else if (ev.event === "note" && ev.msg) {
+          nrun.msg = ev.msg;
+        }
+      });
+      nrun = { ...nrun, phase: "done" };
+      await loadVersions();
+      await loadPrefixes();
+      if (prefixValid) await refresh();
+    } catch (e) {
+      nrun = { ...nrun, phase: "error", error: String(e) };
+    }
+  }
+
+  async function runUninstall() {
+    confirmUninstall = false;
+    try { uninstalled = await neutronUninstall(uninstallPrefixes); }
+    catch (e) { error = String(e); }
+    await loadVersions();
+  }
 
   // --- Appearance / decoration theme ---
   // Theme color groups shown in the Appearance editor. Keys are Control Panel color
@@ -295,7 +304,7 @@
 
   onMount(async () => {
     try { settings = await getSettings(); } catch (_) {}
-    if (settings.scale_value == null) settings.scale_value = detectedScale ?? 1.5;
+    await loadVersions();
 
     // Resolve WHERE we're working before asking anything about it.
     try {
@@ -442,12 +451,19 @@
 
   async function openPreferences() {
     view = "preferences";
+    loadVersions();
     try { detectedScale = await detectScale(); } catch (_) { detectedScale = null; }
     try { compositor = await compositorInfo(); } catch (_) { compositor = null; }
     try { themePresets = await getThemePresets(); } catch (_) { themePresets = []; }
     try { iconSets = await getIconSets(); } catch (_) { iconSets = []; }
-    if (settings.scale_mode === "manual" && settings.scale_value == null)
-      settings.scale_value = detectedScale ?? 1.5;
+  }
+
+  // The scale dropdown: "auto" or one of the steps. A manual value from an older Collider that is
+  // not a step stays selectable rather than silently changing.
+  function setScale(v) {
+    if (v === "auto") settings.scale_mode = "auto";
+    else { settings.scale_mode = "manual"; settings.scale_value = Number(v); }
+    saveSettings();
   }
 
   // Persist on any change. "auto unless overridden": engine uses scale_value only
@@ -552,7 +568,30 @@
       <div class="banner err">{error}</div>
     {/if}
 
-    {#if !prefixValid}
+    {#if vers && !neutronReady}
+      <!-- First run: nothing set up yet. `neutron setup` downloads everything; the CLI itself is
+           fetched first when it is missing (the Collider AppImage on its own). -->
+      <section class="setup">
+        <div class="setup-title">Set up Neutron</div>
+        <div class="setup-body">
+          Neutron downloads its Wine runtime and the Mud Hut installer from GitHub, Microsoft's
+          Visual C++ runtimes, GDI+ and core fonts from Microsoft, and Adobe's Creative Cloud
+          package from Adobe. You may be asked for your password once, to turn on ntsync, which
+          makes the apps much faster.
+        </div>
+        {#if nrun.phase === "running"}
+          <div class="install-stage">{nrun.stage}</div>
+          <div class="install-msg">{nrun.msg}</div>
+        {:else if nrun.phase === "error"}
+          <div class="banner err">{nrun.error}</div>
+        {/if}
+        <div class="setup-actions">
+          <button class="primary" onclick={() => runNeutron("setup")} disabled={nrun.phase === "running"}>
+            {nrun.phase === "running" ? "Setting up…" : nrun.phase === "error" ? "Try again" : "Set up"}
+          </button>
+        </div>
+      </section>
+    {:else if !prefixValid}
       <!-- First run, or every registered prefix has gone missing. Showing an empty library here
            would be a dead end: it reads as "no apps installed" when the real problem is that
            Collider doesn't know where to look. -->
@@ -713,7 +752,7 @@
     </header>
     <div class="scroll">
       {#if mhMethod === null}
-        <!-- Method picker. Copy + Offline need NO Adobe sign-in; only Download does. -->
+        <!-- Method picker. None of the three needs an Adobe sign-in. -->
         <section class="mh-methods">
           <button class="method-card" onclick={() => (mhMethod = "windows")}>
             <div class="method-h">Copy from an existing Windows install</div>
@@ -868,30 +907,25 @@
         <div class="pref-group">
           <div class="pref-label">Display scale</div>
           <div class="pref-desc">
-            How crisp the app UI renders on HiDPI displays. <b>Auto</b> uses your primary
-            monitor's scale; <b>Manual</b> overrides it. Applied at launch
-            (LogPixels = 96 × scale), engine-side.
+            How large the app UI renders. <b>Auto</b> matches your desktop's scale. Best results:
+            set the same scale in your desktop's display settings.
           </div>
           <div class="pref-row">
-            <label class="radio">
-              <input type="radio" name="scalemode" value="auto"
-                     checked={settings.scale_mode === "auto"}
-                     onchange={() => { settings.scale_mode = "auto"; saveSettings(); }} />
-              Auto{#if detectedScale} <span class="muted">(detected: {detectedScale.toFixed(2)}×)</span>{/if}
-            </label>
-            <label class="radio">
-              <input type="radio" name="scalemode" value="manual"
-                     checked={settings.scale_mode === "manual"}
-                     onchange={() => { settings.scale_mode = "manual";
-                       if (settings.scale_value == null) settings.scale_value = detectedScale ?? 1.5;
-                       saveSettings(); }} />
-              Manual
-            </label>
-            {#if settings.scale_mode === "manual"}
-              <input class="scale-input" type="number" min="0.5" max="3" step="0.05"
-                     bind:value={settings.scale_value} onchange={saveSettings} />
-            {/if}
+            <select class="scale-select"
+                    value={settings.scale_mode === "manual" && settings.scale_value ? String(settings.scale_value) : "auto"}
+                    onchange={(e) => setScale(e.currentTarget.value)}>
+              <option value="auto">Auto (match desktop){detectedScale?.scale ? ` — ${pct(detectedScale.scale)}` : ""}</option>
+              {#each SCALE_STEPS as st}
+                <option value={String(st)}>{pct(st)}</option>
+              {/each}
+              {#if settings.scale_mode === "manual" && settings.scale_value && !SCALE_STEPS.includes(settings.scale_value)}
+                <option value={String(settings.scale_value)}>{pct(settings.scale_value)} (not a Windows step)</option>
+              {/if}
+            </select>
           </div>
+          {#if detectedScale?.warning && settings.scale_mode !== "manual"}
+            <div class="pref-desc warn">⚠ {detectedScale.warning}</div>
+          {/if}
         </div>
 
         <div class="pref-group">
@@ -974,8 +1008,7 @@
             bar (Wayland doesn't let apps position their own windows). This pins it back into
             place via a compositor window rule.
             {#if !compositor.home_rule_supported}
-              <b>Not supported on your compositor ({compositor.desktop}) yet</b> — use the X11
-              display mode if you need it.
+              <b>Not supported on your compositor ({compositor.desktop}) yet.</b>
             {/if}
           </div>
           <div class="pref-row">
@@ -1001,6 +1034,51 @@
           {/if}
         </div>
         {/if}
+
+        <div class="pref-group">
+          <div class="pref-label">Neutron</div>
+          <div class="pref-desc">
+            {#if vers?.cli}
+              CLI {vers.cli} · neutron-wine {vers.neutron_wine ?? "not installed"} ·
+              Mud Hut {vers.mudhut ?? "not installed"} · Collider {vers.collider}
+            {:else}
+              The Neutron CLI is not installed. Use <b>Set up</b> on the Apps page.
+            {/if}
+          </div>
+          {#if nrun.phase === "running" && nrun.kind === "update"}
+            <div class="pref-desc">Updating · {nrun.stage} {nrun.msg}</div>
+          {:else if nrun.phase === "done" && nrun.kind === "update"}
+            <div class="pref-desc">Up to date. Prefixes were moved to the newest runtime.</div>
+          {:else if nrun.phase === "error" && nrun.kind === "update"}
+            <div class="pref-desc warn">⚠ {nrun.error}</div>
+          {/if}
+          {#if uninstalled}
+            <div class="pref-desc">Neutron was uninstalled ({uninstalled.removed} items removed).
+              {#if uninstalled.prefixes_not_removed?.length}Your prefixes were kept.{/if}</div>
+          {/if}
+          <div class="pref-row">
+            <button class="ghost-btn" onclick={() => runNeutron("update")}
+                    disabled={!vers?.cli || nrun.phase === "running"}>
+              {nrun.phase === "running" && nrun.kind === "update" ? "Updating…" : "Update"}
+            </button>
+            <button class="ghost-btn" onclick={() => { confirmUninstall = true; uninstallPrefixes = false; }}
+                    disabled={!vers?.cli || nrun.phase === "running"}>Uninstall…</button>
+          </div>
+          {#if confirmUninstall}
+            <div class="confirm">
+              <div>This removes Neutron's runtime, downloads, logs, menu entries, file associations
+                and Collider's settings. ntsync stays on.</div>
+              <label class="radio">
+                <input type="checkbox" bind:checked={uninstallPrefixes} />
+                Also delete my prefixes (the Adobe apps and their settings)
+              </label>
+              <div class="pref-row">
+                <button class="ghost-btn danger" onclick={runUninstall}>Uninstall</button>
+                <button class="ghost-btn" onclick={() => (confirmUninstall = false)}>Cancel</button>
+              </div>
+            </div>
+          {/if}
+        </div>
       </section>
     </div>
   {/if}
@@ -1032,6 +1110,8 @@
   .title { font-size: 16px; font-weight: 600; }
   .subtitle { font-size: 11.5px; color: rgba(255,255,255,0.4); margin-top: 2px; }
 
+  .scale-select { background: rgba(255,255,255,0.06); color: inherit; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; }
+  .confirm { margin-top: 10px; padding: 12px 14px; border-radius: 8px; background: rgba(226,75,74,0.08); border: 1px solid rgba(226,75,74,0.25); font-size: 12.5px; display: flex; flex-direction: column; gap: 8px; }
   .banner { margin: 14px 22px 0; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; }
   .banner.err { background: rgba(226,75,74,0.14); color: #ff9b9b; border: 1px solid rgba(226,75,74,0.3); }
 

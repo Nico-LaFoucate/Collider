@@ -44,7 +44,11 @@ impl std::error::Error for NeutronError {}
 /// 'encodings'". We remove these so the child uses the SYSTEM Python and
 /// libraries — exactly as it would if the user ran `neutron` in their shell.
 fn clean_command() -> Command {
-    let mut cmd = Command::new("neutron");
+    clean_command_for("neutron")
+}
+
+fn clean_command_for(bin: &str) -> Command {
+    let mut cmd = Command::new(bin);
     for var in [
         "PYTHONHOME",
         "PYTHONPATH",
@@ -241,9 +245,107 @@ pub fn fonts_repair(prefix: &str) -> anyhow::Result<Value> {
 /// ⚠️ `--progress` is OPT-IN in the engine and must stay that way: Mud Hut shells out to
 /// `neutron prefix provision` with INHERITED stdout, so streaming by default would inject these
 /// lines into Mud Hut's own event stream and this app would read our result as Mud Hut's.
-pub fn provision_stream(prefix: &str, mut on_event: impl FnMut(Value)) -> anyhow::Result<Value> {
-    let mut cmd = clean_command();
-    cmd.arg("--json").arg("--progress").arg("prefix").arg("provision").arg(prefix);
+pub fn provision_stream(prefix: &str, on_event: impl FnMut(Value)) -> anyhow::Result<Value> {
+    run_stream(&["prefix", "provision", prefix], on_event)
+}
+
+/// `neutron setup` / `neutron update`, streaming progress: the same NDJSON contract as provision.
+/// Setup may show the desktop's password dialog (pkexec) once, to turn on ntsync. When the CLI
+/// is not installed yet (a first run from the Collider AppImage alone), it is fetched first.
+pub fn setup_stream(update: bool, on_event: impl FnMut(Value)) -> anyhow::Result<Value> {
+    let bin = if update { "neutron".to_string() } else { bootstrap_cli()? };
+    run_stream_with(&bin, &[if update { "update" } else { "setup" }], on_event)
+}
+
+/// The CLI to run setup with: `neutron` on PATH, else the CLI from the neutron repo's latest
+/// GitHub release, downloaded to ~/.local/share/neutron/bin/neutron and checked against that
+/// release's SHA256SUMS. `neutron setup` then links it onto PATH.
+fn bootstrap_cli() -> anyhow::Result<String> {
+    let on_path = Command::new("sh").args(["-c", "command -v neutron"]).output()
+        .map(|o| o.status.success()).unwrap_or(false);
+    if on_path {
+        return Ok("neutron".into());
+    }
+    let home = std::env::var("HOME").context("no HOME")?;
+    let dir = std::path::Path::new(&home).join(".local/share/neutron/bin");
+    std::fs::create_dir_all(&dir)?;
+    let base = "https://github.com/Nico-LaFoucate/neutron/releases/latest/download";
+    let part = dir.join("neutron.part");
+    let get = |url: &str, out: &std::path::Path| -> anyhow::Result<()> {
+        let st = Command::new("curl").args(["-fsSL", "--retry", "3", "-o"]).arg(out).arg(url)
+            .status().context("curl is needed to download the Neutron CLI")?;
+        if !st.success() { return Err(anyhow!("could not download {url}")); }
+        Ok(())
+    };
+    get(&format!("{base}/neutron"), &part)?;
+    let sums = dir.join("SHA256SUMS.part");
+    get(&format!("{base}/SHA256SUMS"), &sums)?;
+    let want = std::fs::read_to_string(&sums)?.lines()
+        .filter_map(|l| l.split_once(char::is_whitespace))
+        .find(|(_, n)| n.trim().trim_start_matches('*') == "neutron")
+        .map(|(h, _)| h.to_lowercase())
+        .context("the release lists no checksum for the CLI")?;
+    let _ = std::fs::remove_file(&sums);
+    let got = Command::new("sha256sum").arg(&part).output()?;
+    let got = String::from_utf8_lossy(&got.stdout).split_whitespace().next().unwrap_or("").to_string();
+    if got != want {
+        let _ = std::fs::remove_file(&part);
+        return Err(anyhow!("the downloaded Neutron CLI failed its checksum"));
+    }
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))?;
+    let dest = dir.join("neutron");
+    std::fs::rename(&part, &dest)?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// `neutron uninstall --yes [--delete-prefixes]`. The confirmation is Collider's dialog.
+pub fn uninstall(delete_prefixes: bool) -> anyhow::Result<Value> {
+    let mut args = vec!["uninstall", "--yes"];
+    if delete_prefixes { args.push("--delete-prefixes"); }
+    run_json(&args)
+}
+
+/// Every piece's version (`neutron --version`), for Preferences and bug reports.
+pub fn version() -> anyhow::Result<Value> {
+    run_json(&["--version"])
+}
+
+/// The desktop's display scale as the engine sees it (`neutron display`): `{scale, output,
+/// source, dpi, windows_step, warning}`. Collider has no detection of its own (DECISIONS C4b).
+pub fn display() -> anyhow::Result<Value> {
+    run_json(&["display"])
+}
+
+/// Install a window-button icon set (a folder of close/min/max/restore .ico) into a prefix, or
+/// turn custom icons off with `dir = None`.
+pub fn caption_icons(prefix: &str, dir: Option<(&str, &str)>) -> anyhow::Result<Value> {
+    match dir {
+        Some((path, name)) => run_json(&["theme", "icons", "--prefix", prefix, "--from", path,
+                                         "--name", name]),
+        None => run_json(&["theme", "icons", "--prefix", prefix, "--off"]),
+    }
+}
+
+/// The optional KWin rule that keeps Premiere's home screen below the menu bar.
+pub fn home_window_rule(enabled: bool, y: i32) -> anyhow::Result<Value> {
+    let y = y.to_string();
+    if enabled {
+        run_json(&["window-rule", "premiere-home", "--y", &y])
+    } else {
+        run_json(&["window-rule", "premiere-home", "--off"])
+    }
+}
+
+/// Run `neutron --json --progress <args>` and stream its NDJSON events to `on_event`. Returns the
+/// terminal `result` object.
+fn run_stream(args: &[&str], on_event: impl FnMut(Value)) -> anyhow::Result<Value> {
+    run_stream_with("neutron", args, on_event)
+}
+
+fn run_stream_with(bin: &str, args: &[&str], mut on_event: impl FnMut(Value)) -> anyhow::Result<Value> {
+    let mut cmd = clean_command_for(bin);
+    cmd.arg("--json").arg("--progress").args(args);
     // stdout = the NDJSON stream; stderr = wineboot/child noise -> inherit, never parsed.
     cmd.stdout(Stdio::piped()).stderr(Stdio::inherit());
 
@@ -269,19 +371,44 @@ pub fn provision_stream(prefix: &str, mut on_event: impl FnMut(Value)) -> anyhow
                         .and_then(|m| m.as_str()).unwrap_or("unknown error").to_string(),
                 );
             }
+            // A command that stops before it starts (e.g. a missing prerequisite) prints a plain
+            // `{ok: false, reason}` object rather than a tagged event.
+            None if v.get("ok") == Some(&Value::Bool(false)) => {
+                if let Some(r) = v.get("reason").and_then(|m| m.as_str()) {
+                    error_msg = Some(r.to_string());
+                }
+            }
             _ => {}
         }
         on_event(v);
     }
 
-    let status = child.wait().context("waiting for neutron provision")?;
+    let status = child.wait().context("waiting for neutron")?;
     if let Some(msg) = error_msg {
         return Err(anyhow!("{msg}"));
     }
     if !status.success() {
-        return Err(anyhow!("provision exited with code {}", status.code().unwrap_or(-1)));
+        // A failed run still ends with a result object naming what failed.
+        if let Some(t) = &terminal {
+            let failed: Vec<String> = t.get("steps").and_then(|s| s.as_array())
+                .map(|steps| steps.iter()
+                    .filter(|st| st.get("ok") == Some(&Value::Bool(false)))
+                    .map(|st| format!("{}: {}",
+                        st.get("step").and_then(|v| v.as_str()).unwrap_or("?"),
+                        st.get("detail").and_then(|v| v.as_str()).unwrap_or("failed")))
+                    .collect())
+                .unwrap_or_default();
+            if !failed.is_empty() {
+                return Err(anyhow!("{}", failed.join("; ")));
+            }
+            if let Some(r) = t.get("reason").and_then(|v| v.as_str()) {
+                return Err(anyhow!("{r}"));
+            }
+        }
+        return Err(anyhow!("neutron {} exited with code {}", args.join(" "),
+                           status.code().unwrap_or(-1)));
     }
-    terminal.ok_or_else(|| anyhow!("provision finished without a result"))
+    terminal.ok_or_else(|| anyhow!("neutron {} finished without a result", args.join(" ")))
 }
 
 /// Close ONE app cleanly, leaving every other app in the prefix running.
