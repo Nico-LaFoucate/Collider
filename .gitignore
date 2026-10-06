@@ -9,3 +9,6 @@ src-tauri/vkd3d-proton.cache*
 
 # Internal material: kept locally for development, never published.
 /docs/ROADMAP.md
+
+# Release output (release.sh)
+/dist/
