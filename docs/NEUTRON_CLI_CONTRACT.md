@@ -153,10 +153,13 @@ Powers Collider's "is the prefix healthy" status surface.
     { "name": "wine-tkg", "ok": true },
     { "name": "ffmpeg", "ok": true },
     { "name": "inotify-tools", "ok": true },
-    { "name": "display_fix", "ok": true }
+    { "name": "display_fix", "ok": true },
+    { "name": "webview2", "ok": true, "detail": "154.0.4258.62 ...", "warning": true }
   ]
 }
 ```
+`"warning": true` marks a check that passes but needs the user's attention (ntsync not active, an
+untested WebView2 version). Collider shows it with a yellow dot and `detail` as the tooltip.
 
 ---
 

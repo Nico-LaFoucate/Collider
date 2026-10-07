@@ -534,7 +534,7 @@
         <div class="sys-list">
           {#each health.checks as c}
             <div class="sys-row" title={c.detail ?? ""}>
-              <span class="dot {c.ok ? 'ok' : 'bad'}"></span>
+              <span class="dot {!c.ok ? 'bad' : c.warning ? 'warn' : 'ok'}"></span>
               <span class="sys-name">{c.name}</span>
             </div>
           {/each}
