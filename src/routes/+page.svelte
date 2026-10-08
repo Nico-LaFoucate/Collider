@@ -568,12 +568,7 @@
   <div class="shell">
   <aside>
     <div class="brand">
-      <!-- Exact-size copies of the 512px master (static/collider-logo.png, kept as the source):
-           WebKit then draws the logo 1:1 into the window buffer instead of shrinking the master
-           5-12x in one step, which lost the stars on Wayland at 175% (GTK renders at 2x). -->
-      <img class="logo" src="/collider-logo-44.png"
-           srcset="/collider-logo-44.png 1x, /collider-logo-77.png 1.75x, /collider-logo-88.png 2x, /collider-logo-132.png 3x"
-           alt="" />
+      <img class="logo" src="/collider-logo.png" alt="" />
       <div>
         <div class="brand-name">Collider</div>
         <div class="brand-by">by Nico LaFoucate</div>
