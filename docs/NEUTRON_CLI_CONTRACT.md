@@ -62,11 +62,11 @@ Inspect a prefix. Resolves and reports paths Collider needs.
 ```json
 {
   "valid": true,
-  "wineprefix": "/home/nico/.premiere2025",
-  "drive_c": "/home/nico/.premiere2025/drive_c",
-  "user": "nico",
-  "documents_symlink": "/home/nico/.premiere2025/drive_c/users/nico/Documents",
-  "documents_real": "/home/nico/Documents",
+  "wineprefix": "/path/to/prefix",
+  "drive_c": "/path/to/prefix/drive_c",
+  "user": "<user>",
+  "documents_symlink": "/path/to/prefix/drive_c/users/<user>/Documents",
+  "documents_real": "~/Documents",
   "display_fix_applied": true,
   "neutron_stack": { "wine": "wine-tkg-...", "dxvk": "...", "vkd3d": "..." }
 }
