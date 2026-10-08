@@ -568,7 +568,7 @@
   <div class="shell">
   <aside>
     <div class="brand">
-      <img class="logo" src="/collider-logo.png" alt="" />
+      <div class="logo" aria-hidden="true"></div>
       <div>
         <div class="brand-name">Collider</div>
         <div class="brand-by">by Nico LaFoucate</div>
@@ -1178,7 +1178,13 @@
 
   aside { width: 200px; flex-shrink: 0; padding: 20px 14px; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 22px; }
-  .logo { width: 44px; height: 44px; display: block; flex-shrink: 0; }
+  /* One copy per scale, each the exact pixel size it is drawn at. CSS picks it, not srcset:
+     WebKit re-checks resolution media queries when the window moves to a monitor with another
+     scale, but keeps the srcset choice it made at first paint. */
+  .logo { width: 44px; height: 44px; display: block; flex-shrink: 0; background: url(/collider-logo-44.png) 0 0 / 44px 44px no-repeat; }
+  @media (-webkit-min-device-pixel-ratio: 1.5), (min-resolution: 1.5dppx) { .logo { background-image: url(/collider-logo-88.png); } }
+  @media (-webkit-min-device-pixel-ratio: 2.5), (min-resolution: 2.5dppx) { .logo { background-image: url(/collider-logo-132.png); } }
+  @media (-webkit-min-device-pixel-ratio: 3.5), (min-resolution: 3.5dppx) { .logo { background-image: url(/collider-logo-176.png); } }
   .brand-name { font-size: 17px; font-weight: 700; }
   .brand-by { font-size: 9.5px; color: rgba(255,255,255,0.35); }
   .nav-section { flex-shrink: 0; font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.2px; color: rgba(255,255,255,0.3); padding: 14px 8px 6px; }
