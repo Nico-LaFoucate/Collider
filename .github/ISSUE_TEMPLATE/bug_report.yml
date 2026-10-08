@@ -1,0 +1,33 @@
+name: Bug report
+description: Something in the Collider app doesn't work.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. This form is for the Collider app itself: its window, pages and buttons.
+        If an Adobe app misbehaves while running, report it on [Neutron's Issues](https://github.com/Nico-LaFoucate/Neutron/issues/new/choose). Problems while installing an app go to [Mud Hut's Issues](https://github.com/Nico-LaFoucate/Mud-Hut/issues/new/choose). Please report one bug per issue.
+  - type: input
+    id: collider-version
+    attributes:
+      label: Collider version
+      description: Collider shows it under Preferences. `neutron --version` prints it too.
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag a screenshot or screen recording in here. If Collider doesn't open at all, say so instead.
+  - type: input
+    id: system
+    attributes:
+      label: Distribution, desktop and GPU
+      placeholder: e.g. CachyOS, KDE Plasma on Wayland, NVIDIA RTX 3080
