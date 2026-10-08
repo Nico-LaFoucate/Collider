@@ -7,7 +7,37 @@
            selectPrefix, provisionPrefix, fontsCheck, fontsRepair } from "$lib/api.js";
   import AppCard from "$lib/AppCard.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
+
+  // --- window chrome ---
+  // Collider draws its own title bar (DECISIONS C34, option A): the window is undecorated, the
+  // empty strip along the top drags it (double-click maximizes, via data-tauri-drag-region), and
+  // the three buttons at its right are ours. `maximized` picks the restore glyph and hides the
+  // resize handles while there is nothing to resize.
+  const win = getCurrentWindow();
+  let maximized = $state(false);
+  onMount(() => {
+    let unlisten = null;
+    const sync = () => win.isMaximized().then((m) => (maximized = m)).catch(() => {});
+    sync();
+    win.onResized(sync).then((u) => (unlisten = u)).catch(() => {});
+    return () => { if (unlisten) unlisten(); };
+  });
+  // An undecorated GTK window has no resize border of its own (tao's edge hit-test sits on the GTK
+  // window, under the webview), so thin handles along the page edge start the compositor's resize
+  // for the matching direction. [css class, Tauri ResizeDirection]
+  const EDGES = [
+    ["n", "North"], ["s", "South"], ["e", "East"], ["w", "West"],
+    ["nw", "NorthWest"], ["ne", "NorthEast"], ["sw", "SouthWest"], ["se", "SouthEast"],
+  ];
+  function resizeFrom(direction) {
+    return (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      win.startResizeDragging(direction).catch(() => {});
+    };
+  }
 
   // --- state ---
   // The working prefix is RESOLVED AT STARTUP, never hardcoded: the user's saved choice if
@@ -507,6 +537,35 @@
 </script>
 
 <div class="app">
+  <!-- Title strip: not a bar of its own, just the empty top of the page. The bare attribute makes
+       the strip itself (not its children) the drag region; the buttons are drawn here so they
+       match the rest of the UI. -->
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="win-controls">
+      <button class="win-btn" title="Minimize" aria-label="Minimize" onclick={() => win.minimize()}>
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1 5.5h8" /></svg>
+      </button>
+      <button class="win-btn" title={maximized ? "Restore" : "Maximize"}
+              aria-label={maximized ? "Restore" : "Maximize"} onclick={() => win.toggleMaximize()}>
+        {#if maximized}
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M3.5 3.5v-2h5v5h-2" /><rect x="1.5" y="3.5" width="5" height="5" /></svg>
+        {:else}
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" /></svg>
+        {/if}
+      </button>
+      <button class="win-btn close" title="Close" aria-label="Close" onclick={() => win.close()}>
+        <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6" /></svg>
+      </button>
+    </div>
+  </div>
+  {#if !maximized}
+    {#each EDGES as [cls, dir]}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="resize-handle {cls}" onmousedown={resizeFrom(dir)}></div>
+    {/each}
+  {/if}
+
+  <div class="shell">
   <aside>
     <div class="brand">
       <img class="logo" src="/collider-logo.png" alt="" />
@@ -1088,12 +1147,36 @@
       Ready · Neutron CLI connected
     </footer>
   </main>
+  </div>
 </div>
 
 <style>
-  .app { display: flex; height: 100vh; overflow: hidden; font-family: system-ui, sans-serif; color: #e8e8ec; }
+  .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; font-family: system-ui, sans-serif; color: #e8e8ec; }
+  .shell { display: flex; flex: 1; min-height: 0; }
 
-  aside { width: 200px; flex-shrink: 0; padding: 20px 14px; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  /* Title strip + window controls (DECISIONS C34). The strip is the page's own background, no
+     border, no title; the buttons follow .ghost (dim glyphs, 6px radius) and .dot.bad for close. */
+  .titlebar { flex-shrink: 0; height: 36px; display: flex; align-items: center; justify-content: flex-end; padding: 0 8px; }
+  .win-controls { display: flex; gap: 4px; }
+  .win-btn { width: 28px; height: 24px; padding: 0; border: none; border-radius: 6px; background: transparent; color: rgba(255,255,255,0.6); display: flex; align-items: center; justify-content: center; cursor: default; transition: background .12s, color .12s; }
+  .win-btn:hover { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.85); }
+  .win-btn:active { background: rgba(255,255,255,0.14); }
+  .win-btn.close { background: rgba(226,75,74,0.18); color: #ff9b9b; }
+  .win-btn.close:hover { background: rgba(226,75,74,0.32); color: #ffb3b3; }
+  .win-btn.close:active { background: rgba(226,75,74,0.45); }
+  .win-btn svg { fill: none; stroke: currentColor; stroke-width: 1; }
+  /* Resize handles along the window edge; the corners win over the sides. */
+  .resize-handle { position: fixed; z-index: 100; }
+  .resize-handle.n { top: 0; left: 8px; right: 8px; height: 4px; cursor: n-resize; }
+  .resize-handle.s { bottom: 0; left: 8px; right: 8px; height: 4px; cursor: s-resize; }
+  .resize-handle.e { right: 0; top: 8px; bottom: 8px; width: 4px; cursor: e-resize; }
+  .resize-handle.w { left: 0; top: 8px; bottom: 8px; width: 4px; cursor: w-resize; }
+  .resize-handle.nw { top: 0; left: 0; width: 8px; height: 8px; cursor: nw-resize; }
+  .resize-handle.ne { top: 0; right: 0; width: 8px; height: 8px; cursor: ne-resize; }
+  .resize-handle.sw { bottom: 0; left: 0; width: 8px; height: 8px; cursor: sw-resize; }
+  .resize-handle.se { bottom: 0; right: 0; width: 8px; height: 8px; cursor: se-resize; }
+
+  aside { width: 200px; flex-shrink: 0; padding: 20px 14px; border-right: 1px solid rgba(255,255,255,0.06); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
   .brand { display: flex; align-items: center; gap: 9px; padding: 0 6px 22px; }
   .logo { width: 44px; height: 44px; display: block; flex-shrink: 0; }
   .brand-name { font-size: 17px; font-weight: 700; }
@@ -1104,7 +1187,7 @@
   .nav-item.disabled { color: rgba(255,255,255,0.25); cursor: default; }
   .nav-item.disabled:hover { background: transparent; }
 
-  main { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100vh; }
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
   header { flex-shrink: 0; padding: 16px 22px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; }
   .scroll { flex: 1; overflow-y: auto; min-height: 0; }
   .title { font-size: 16px; font-weight: 600; }

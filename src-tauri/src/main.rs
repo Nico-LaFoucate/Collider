@@ -2,24 +2,31 @@
 //
 // Before handing off to the app, we set up the runtime environment so the
 // packaged AppImage "just works" on a double-click — no shell env required.
-// Two problems this solves, both caused by the AppImage running with a
-// stripped-down environment that doesn't match the user's interactive shell:
+// Three problems this solves, all caused by the AppImage running with an
+// environment that doesn't match the user's desktop session:
 //
-//   1. Rendering: WebKitGTK + NVIDIA + Wayland needs DMA-BUF disabled and
-//      X11/XWayland, or the window fails to open (Gdk protocol error). We set
-//      these here so the user never types them.
-//   2. PATH: the Neutron CLI lives in ~/.local/bin (and friends), which an
+//   1. Display backend: the AppImage's GTK hook (apprun-hooks/linuxdeploy-plugin-gtk.sh)
+//      forces GDK_BACKEND=x11 for everyone, so on a Wayland desktop Collider ran
+//      through XWayland with the compositor's X11 frame around it. Collider draws
+//      its own title bar (decorations are off in tauri.conf.json; the bar lives in
+//      +page.svelte), so on Wayland we take the native window back.
+//   2. Rendering: WebKitGTK's DMA-BUF renderer does not work on the NVIDIA driver
+//      (Collider only renders there with it off). We disable it on NVIDIA so the
+//      user never types the variable.
+//   3. PATH: the Neutron CLI lives in ~/.local/bin (and friends), which an
 //      AppImage's minimal PATH often omits — so `neutron` isn't found and every
 //      call fails with "non-JSON on stdout". We prepend the standard user bin
 //      dirs so `neutron` resolves however the app was launched.
 //
-// All of this only SETS values that aren't already present, so a user who
-// already configured their environment (or a future Collider setting) wins.
+// Values the hook sets for its own reasons (GDK_BACKEND, GTK_THEME) are overridden
+// on purpose; everything else only fills in what is missing, so a user who
+// configured their environment (or a future Collider setting) wins. The hook's
+// own overrides (APPIMAGE_GTK_THEME) and COLLIDER_X11 are the escape hatches.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     // `--version` answers without opening a window (bug reports, `neutron --version`).
@@ -31,22 +38,52 @@ fn main() {
     collider_lib::run()
 }
 
-/// Configure rendering + PATH so the packaged app runs cleanly without the user
-/// having to set anything. Only fills in values that are missing.
+/// Configure the display backend, rendering and PATH so the packaged app runs
+/// cleanly without the user having to set anything. Runs before GTK is
+/// initialized: GDK reads these variables when it opens the display.
 fn setup_runtime_env() {
-    // --- Rendering (NVIDIA / Wayland / WebKitGTK) ---
-    // Disable the DMA-BUF renderer that breaks under NVIDIA + Wayland.
-    if env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+    // --- Display backend (Wayland / X11) ---
+    // On a Wayland session, run as a native Wayland window. The AppImage hook
+    // exported GDK_BACKEND=x11 before we started (Tauri issue 8541: an older
+    // WebKitGTK crashed on Wayland), which costs a fractional-scale desktop its
+    // crisp window and leaves the compositor's X11 frame around ours. X11
+    // desktops keep X11; COLLIDER_X11=1 keeps it on Wayland too.
+    let on_wayland = env::var_os("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty());
+    if env_flag("COLLIDER_X11") {
+        env::set_var("GDK_BACKEND", "x11");
+    } else if on_wayland {
+        env::set_var("GDK_BACKEND", "wayland");
+    } else if env::var_os("GDK_BACKEND").is_none() {
+        env::set_var("GDK_BACKEND", "x11");
+    }
+
+    // --- Rendering (NVIDIA / WebKitGTK) ---
+    // WebKitGTK's DMA-BUF renderer does not work on the NVIDIA driver; Collider
+    // only renders there with it off. Mesa drivers render fine with it, so only
+    // NVIDIA gets the fallback.
+    if Path::new("/proc/driver/nvidia").exists()
+        && env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
+    {
         env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     }
-    // Prefer X11/XWayland for GTK, which avoids the Wayland protocol error.
-    // Only force this if the user hasn't chosen a backend themselves.
-    if env::var_os("GDK_BACKEND").is_none() {
-        env::set_var("GDK_BACKEND", "x11");
+
+    // --- GTK theme (native popups) ---
+    // The hook picks Adwaita:light unless GNOME's gtk-theme setting says "dark",
+    // which a KDE desktop never does. Collider is a dark-only UI, and the few
+    // widgets WebKitGTK still draws natively (the select list, the file chooser)
+    // should not pop up light. APPIMAGE_GTK_THEME is the hook's own override and
+    // stays the user's call.
+    if env::var_os("APPIMAGE_GTK_THEME").is_none() {
+        env::set_var("GTK_THEME", "Adwaita:dark");
     }
 
     // --- PATH (so `neutron` is found under a stripped AppImage env) ---
     augment_path();
+}
+
+/// True when an on/off environment variable is set to anything but "" or "0".
+fn env_flag(name: &str) -> bool {
+    env::var_os(name).is_some_and(|v| !v.is_empty() && v != "0")
 }
 
 /// Prepend the standard user/system bin directories to PATH if they're not
