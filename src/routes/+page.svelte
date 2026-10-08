@@ -1110,7 +1110,10 @@
   .title { font-size: 16px; font-weight: 600; }
   .subtitle { font-size: 11.5px; color: rgba(255,255,255,0.4); margin-top: 2px; }
 
-  .scale-select { background: rgba(255,255,255,0.06); color: inherit; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; }
+  /* appearance:none: WebKitGTK otherwise draws the closed select with the desktop's GTK theme and
+     ignores this background, so a light theme put our light text on white (unreadable). */
+  .scale-select { appearance: none; -webkit-appearance: none; color-scheme: dark; background: rgba(255,255,255,0.06) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='rgba(255,255,255,0.6)' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 9px center; color: inherit; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 5px 26px 5px 8px; font-size: 12.5px; }
+  .scale-select option { background: #1c1c1f; color: #e6e6e6; }
   .confirm { margin-top: 10px; padding: 12px 14px; border-radius: 8px; background: rgba(226,75,74,0.08); border: 1px solid rgba(226,75,74,0.25); font-size: 12.5px; display: flex; flex-direction: column; gap: 8px; }
   .banner { margin: 14px 22px 0; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; }
   .banner.err { background: rgba(226,75,74,0.14); color: #ff9b9b; border: 1px solid rgba(226,75,74,0.3); }
