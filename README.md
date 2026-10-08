@@ -2,9 +2,9 @@
 
 ### by Nico LaFoucate
 
-**Collider** is a graphical launcher and environment manager that brings the Adobe Creative Suite to Linux, powered by [Neutron](https://github.com/Nico-LaFoucade/neutron) — a Wine-based compatibility layer built specifically for Adobe applications.
+**Collider** is a graphical launcher and environment manager that brings the Adobe Creative Suite to Linux, powered by [Neutron](https://github.com/Nico-LaFoucate/neutron) — a Wine-based compatibility layer built specifically for Adobe applications.
 
-> ⚠️ **Early Development** — Collider is currently in active development. Features listed below represent the planned scope of the project. Contributions are welcome.
+> ⚠️ **Beta** — Collider is in beta, like the rest of Neutron. Contributions are welcome.
 
 -----
 
@@ -12,7 +12,7 @@
 
 Collider gives Linux users a friendly, GUI-based way to install, configure, and launch Adobe Creative Suite applications without touching the command line. Think of it as a creative-focused alternative to Lutris, built from the ground up for Adobe’s ecosystem.
 
-Under the hood, Collider manages a shared Wine prefix through Neutron, preserving full Adobe Dynamic Link interoperability between apps like Premiere Pro, After Effects, Audition, and Photoshop.
+Under the hood, Collider manages a shared Wine prefix through Neutron, preserving full Adobe Dynamic Link interoperability between Premiere Pro and After Effects.
 
 -----
 
@@ -24,94 +24,71 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 
 -----
 
-## Planned Features
+## Features
 
-### Installation
+### Installation (through Mud Hut)
 
-- Adobe Creative Cloud installer (legitimate, via Adobe servers)
-- ISO / disc image mount
-- Pre-installed or copied Windows directory
-- Offline installer package
-- Network share / NAS path
-- Portable / USB installation
-- Import from existing Proton prefix
+- Download from Adobe (Adobe's own servers and installer)
+- Install from an offline package or an `.iso` disc image
+- Copy from an existing Windows install
 
 ### App Library
 
-- Per-app launch profiles with isolated settings
-- Shared Adobe Wine prefix for full Dynamic Link support
-- Snapshot and rollback before any update
-- Run multiple Adobe versions side by side
-- Update gating — hold Adobe updates until Neutron confirms compatibility
+- One tile per installed app: launch, and force quit if an app hangs
+- Prefixes: provision, rename, check and repair fonts, forget, add an existing prefix
+- Health checks from `neutron doctor`, shown in the sidebar
 
-### Performance & Display
+### Display & Appearance
 
-- GPU acceleration mode (DXVK / software fallback)
-- VRAM allocation and CPU thread controls
-- XWayland / Wayland toggle per app
-- Color profile passthrough
-- HDR output toggle
-- Real-time GPU/CPU/RAM performance overlay
+- Display scale: Auto (match desktop) or a Windows scale step
+- Color themes and caption-button icon sets for the apps' windows
 
-### Adobe-Specific
+### Setup & Updates
 
-- Media cache location and size management
-- Scratch disk configuration
-- Auto-clear cache on launch
-- Persistent Creative Cloud login across apps
-- Project-based launch profiles
-- Integrated project file backup
+- Set up, Update and Uninstall buttons, which run `neutron setup`, `neutron update` and `neutron uninstall`
 
-### Compatibility
+-----
 
-- Per-app fix manager — enable/disable tweaks per app with cascading defaults, Steam/Lutris-style
-- DLL override manager with per-DLL status indicators
-- Wine version switcher
-- Plain-English compatibility check on first launch
-- Community hardware compatibility reports (like ProtonDB for Adobe)
-- Per-app debug logging
+## Planned
 
-### Power User
-
-- Plugin manager for Neutron-verified plugins
-- Render queue as background Linux system jobs
-- One-click migration from Windows installations
-- Hardware profile switching (AC/battery/eGPU)
+- Lightroom (cloud) support
+- AMD and Intel GPU validation
+- Snapshot/rollback and holding Adobe updates until verified
+- Per-app GPU and color controls
+- Distro packages (AUR)
 
 -----
 
 ## Supported Applications
 
-|Application             |Status       |
-|------------------------|-------------|
-|Adobe Premiere Pro 2025 |🔧 In Progress|
-|Adobe Photoshop 2025    |🔧 In Progress|
-|Adobe After Effects 2025|📋 Planned    |
-|Adobe Audition 2025     |📋 Planned    |
-|Adobe Illustrator 2025  |📋 Planned    |
+Collider launches the apps Neutron supports: Premiere Pro, After Effects, Photoshop, Lightroom Classic, Illustrator, Media Encoder and Animate. Status per app and per release is on the [status board](https://neutronproject.org) and in [Neutron's compatibility table](https://github.com/Nico-LaFoucate/neutron#compatibility).
 
 -----
 
 ## Requirements
 
-> Full requirements will be documented once Neutron reaches a stable release. General prerequisites:
+Collider has the same requirements as Neutron:
 
-- A modern Linux distribution (CachyOS, Arch, Ubuntu 22.04+)
-- Vulkan-capable GPU (NVIDIA or AMD)
+- 64-bit Linux with glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, current Arch / CachyOS / Manjaro, openSUSE Tumbleweed) and a **Wayland** session
+- An **NVIDIA GPU**. AMD and Intel GPUs are not validated yet.
 - Up-to-date GPU drivers
 - A valid Adobe subscription or existing installation
+
+Neutron is tested on three machines, all CachyOS with KDE Plasma (Wayland) and NVIDIA GPUs.
 
 -----
 
 ## Installation
 
-> Installer coming soon. For now, see [Neutron](https://github.com/Nico-LaFoucate/neutron) for manual setup instructions.
+`neutron setup` installs Collider and adds **Neutron Collider** to your application menu. See [Getting Started](https://github.com/Nico-LaFoucate/neutron#getting-started) in Neutron's README.
+
+To build from source: `npm ci`, then `npm run tauri dev` for a development build, or `./release.sh` for the release AppImage (written to `dist/`). You need Rust, Node.js and Tauri's Linux system dependencies.
 
 -----
 
 ## Legal
 
-Collider does not include, distribute, or facilitate the acquisition of any proprietary software. Users are responsible for ensuring they have appropriate licenses for any software they run through Collider and Neutron.
+Collider does not include or distribute any proprietary software. Apps you install through its Mud Hut tab come from Adobe's own servers or from your own copies. Users are responsible for ensuring they have appropriate licenses for any software they run through Collider and Neutron.
 
 Neutron is an independent project by Nico LaFoucate and Ficus Media Group. Adobe and its product names are trademarks of Adobe Inc. Neutron is not affiliated with or endorsed by Adobe.
 
@@ -119,7 +96,7 @@ Neutron is an independent project by Nico LaFoucate and Ficus Media Group. Adobe
 
 ## License
 
-Collider is licensed under the [Apache License 2.0](LICENSE).
+Collider is licensed under the **Apache License, Version 2.0** (`Apache-2.0`). See [`LICENSE`](LICENSE) for the full text.
 
 Neutron (the CLI) and neutron-wine are licensed under the GNU Lesser General Public License, version 2.1 or later (`LGPL-2.1-or-later`), the same as [Wine](https://www.winehq.org/).
 
@@ -127,7 +104,13 @@ Neutron (the CLI) and neutron-wine are licensed under the GNU Lesser General Pub
 
 ## Contributing
 
-Contributions are very welcome. Please open an issue before submitting large pull requests so we can discuss the approach first.
+Contributions are very welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md). Please open an issue before submitting large pull requests so we can discuss the approach first.
+
+-----
+
+## Reporting bugs
+
+Bugs in any Neutron piece, including Collider, go to [Neutron's Issues](https://github.com/Nico-LaFoucate/Neutron/issues/new/choose). Questions go to [Discussions](https://github.com/Nico-LaFoucate/Neutron/discussions). Report security problems privately: see [`SECURITY.md`](SECURITY.md).
 
 -----
 
