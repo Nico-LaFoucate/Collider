@@ -12,7 +12,6 @@
 // ButtonHilight = min/max hover, ButtonText = glyph. The close-hover red is hardcoded
 // in the wine patch (intentional, like Windows) and is NOT themeable here.
 
-use crate::core::settings::Settings;
 use std::collections::BTreeMap;
 
 /// A color set: Control Panel color key -> "R G B" (the format Wine expects).
@@ -89,6 +88,11 @@ pub fn dark() -> ColorMap {
         ("Window", "43 43 43"),
         ("WindowText", "224 224 224"),
         ("HilightText", "255 255 255"),
+        // the classic scrollbar TRACK (the thumb and arrows follow the button colors below).
+        // Same value as the engine's default theme (`DEFAULT_THEME_COLORS` in bin/neutron);
+        // without it here, a theme Collider sends could not set the track, and a prefix
+        // provisioned with the dark default kept dark tracks under the Light preset.
+        ("Scrollbar", "30 30 30"),
         // dialogs & controls — the surfaces Wine draws for MESSAGE BOXES, common dialogs and
         // any control an app does not draw itself. Themed, deliberately: the whole point is that
         // a popup matches the rest of the dark UI.
@@ -131,6 +135,8 @@ pub fn light() -> ColorMap {
         ("Window", "255 255 255"),
         ("WindowText", "20 20 20"),
         ("HilightText", "255 255 255"),
+        // scrollbar track: Windows' default light gray.
+        ("Scrollbar", "200 200 200"),
         // dialogs & controls — see the note in dark(); these are app-facing surfaces, not chrome.
         ("ButtonFace", "245 245 245"),
         ("ButtonHilight", "255 255 255"),

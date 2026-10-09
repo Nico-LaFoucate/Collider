@@ -9,8 +9,8 @@
   let { app, prefix, info = null } = $props();
 
   // Adobe-style 2-letter badge; fall back to the first two name letters.
-  const BADGES = { premiere: "Pr", photoshop: "Ps", lightroom: "Lr", animate: "An",
-                   mediaencoder: "Me", aftereffects: "Ae", illustrator: "Ai" };
+  const BADGES = { premiere: "Pr", photoshop: "Ps", lightroom: "Lr", lightroomcc: "Lr",
+                   animate: "An", mediaencoder: "Me", aftereffects: "Ae", illustrator: "Ai" };
   const badge = $derived(BADGES[app.id] ?? app.name.slice(0, 2));
 
   // "#rrggbb" -> "r, g, b" for the rgba() tints in the scoped CSS.
@@ -119,8 +119,16 @@
 
   <div class="pills">
     {#if info}
-      <span class="pill {info.valid ? 'ok' : 'bad'}">{info.valid ? "Prefix healthy" : "Invalid prefix"}</span>
-      <span class="pill {info.display_fix_applied ? 'ok' : 'warn'}">{info.display_fix_applied ? "Display fix" : "Fix pending"}</span>
+      <!-- `valid` only says the prefix exists (drive_c and a user folder); health is doctor's,
+           in the sidebar. -->
+      <span class="pill {info.valid ? 'ok' : 'bad'}">{info.valid ? "Prefix valid" : "Invalid prefix"}</span>
+      <!-- The display-fix state comes from Premiere's own preferences file, so it means nothing
+           on any other card. Not applied yet is normal before Premiere's first launch: the fix
+           is applied before every launch, so this is not a warning. -->
+      {#if app.id === "premiere"}
+        <span class="pill {info.display_fix_applied ? 'ok' : ''}"
+              title="Applied automatically before Premiere launches">{info.display_fix_applied ? "Display fix" : "Display fix pending"}</span>
+      {/if}
     {:else}
       <span class="pill">Not checked</span>
     {/if}

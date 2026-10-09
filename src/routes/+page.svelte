@@ -78,6 +78,9 @@
 
   // --- Mud Hut install wizard ---
   let mhCatalog = $state([]);       // installable apps from mudhutApps()
+  // The catalog request: phase loading | done | error. Without it a failed `mudhut apps` left
+  // "Loading catalog…" on screen for good.
+  let mhCatalogLoad = $state({ phase: "loading", error: null });
   let mhTarget = $state("");  // install target prefix (editable); seeded from $HOME at startup
   // phase: pick | installing | done | error
   let mhInstall = $state({ phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null });
@@ -107,8 +110,14 @@
   }
 
   async function loadCatalog() {
-    try { mhCatalog = (await mudhutApps())?.apps ?? []; }
-    catch (e) { mhCatalog = []; }
+    mhCatalogLoad = { phase: "loading", error: null };
+    try {
+      mhCatalog = (await mudhutApps())?.apps ?? [];
+      mhCatalogLoad = { phase: "done", error: null };
+    } catch (e) {
+      mhCatalog = [];
+      mhCatalogLoad = { phase: "error", error: String(e) };
+    }
   }
 
   async function browseSource() {
@@ -189,8 +198,13 @@
   // --- Neutron itself: versions, set up, update, uninstall ---
   let vers = $state(null);              // { cli, neutron_wine, mudhut, collider }
   let neutronReady = $derived(!!(vers?.cli && vers?.neutron_wine));
-  // phase: idle | running | done | error; kind: setup | update
-  let nrun = $state({ phase: "idle", kind: null, stage: "", msg: "", error: null });
+  // phase: idle | running | done | error; kind: setup | update; result: the engine's result
+  // ({ ok, steps: [{ step, ok, detail? }] }) once it has finished.
+  let nrun = $state({ phase: "idle", kind: null, stage: "", msg: "", error: null, result: null });
+  // `neutron update` succeeds even when it skips a prefix with an app running in it; its
+  // `prefixes` step then names the skipped prefixes in `detail`.
+  const updatePrefixesNote = $derived(
+    nrun.result?.steps?.find((st) => st.step === "prefixes")?.detail ?? null);
   let confirmUninstall = $state(false);
   let uninstallPrefixes = $state(false);
   let uninstalled = $state(null);       // the uninstall result, once it has run
@@ -201,9 +215,9 @@
 
   // Set up (first run) or Update: the engine does the work and streams its progress.
   async function runNeutron(kind) {
-    nrun = { phase: "running", kind, stage: "starting", msg: "", error: null };
+    nrun = { phase: "running", kind, stage: "starting", msg: "", error: null, result: null };
     try {
-      await neutronSetup(kind === "update", (ev) => {
+      const result = await neutronSetup(kind === "update", (ev) => {
         if (ev.event === "progress") {
           if (ev.stage) nrun.stage = ev.stage;
           if (ev.msg) nrun.msg = ev.msg;
@@ -211,7 +225,7 @@
           nrun.msg = ev.msg;
         }
       });
-      nrun = { ...nrun, phase: "done" };
+      nrun = { ...nrun, phase: "done", result };
       await loadVersions();
       await loadPrefixes();
       if (prefixValid) await refresh();
@@ -608,7 +622,7 @@
         <div class="subtitle">
           {#if prefixValid}
             {prefixes.find((p) => p.selected)?.name ?? "Neutron prefix"} · {prefix}
-            {#if info}· {info.valid ? "healthy" : "invalid"}{/if}
+            {#if info}· {info.valid ? "valid" : "invalid"}{/if}
           {:else}
             No prefix selected
           {/if}
@@ -629,9 +643,10 @@
         <div class="setup-title">Set up Neutron</div>
         <div class="setup-body">
           Neutron downloads its Wine runtime and the Mud Hut installer from GitHub, Microsoft's
-          Visual C++ runtimes, GDI+ and core fonts from Microsoft, and Adobe's Creative Cloud
-          package from Adobe. You may be asked for your password once, to turn on ntsync, which
-          makes the apps much faster.
+          Visual C++ runtimes and GDI+ from Microsoft, Microsoft's core fonts and d3dcompiler_47
+          from public copies of Microsoft's original files (each checked against a pinned
+          checksum), and Adobe's Creative Cloud package from Adobe. You may be asked for your
+          password once, to turn on ntsync, which makes the apps much faster.
         </div>
         {#if nrun.phase === "running"}
           <div class="install-stage">{nrun.stage}</div>
@@ -824,10 +839,9 @@
       {:else}
         <!-- download / windows / offline — the install phases (progress / done /
              error) are shared; only the pick step differs per method.
-             No sign-in gate anywhere: the download feed + CDN are public and HDPIM
-             decrypts without entitlement; windows/offline are local-only. Licensing
-             is a one-time sign-in INSIDE the app on first launch (NGL writes opm.db
-             itself) — not here. -->
+             No sign-in here: downloads come from Adobe's public servers, and
+             windows/offline install from local files. You sign in inside the app,
+             the same as on Windows. -->
         <section class="mudhut">
           <button class="link-back" onclick={backToMethods}>← Back to install options</button>
           {#if mhInstall.phase === "installing"}
@@ -871,7 +885,11 @@
                     <span class="mh-app-go">Install →</span>
                   </button>
                 {/each}
-                {#if mhCatalog.length === 0}<div class="signin-d">Loading catalog…</div>{/if}
+                {#if mhCatalogLoad.phase === "error"}
+                  <div class="banner err mh-banner">Could not load the app list: {mhCatalogLoad.error}</div>
+                {:else if mhCatalogLoad.phase === "loading"}
+                  <div class="signin-d">Loading catalog…</div>
+                {/if}
               </div>
             </div>
           {:else}
@@ -1068,7 +1086,11 @@
           {#if nrun.phase === "running" && nrun.kind === "update"}
             <div class="pref-desc">Updating · {nrun.stage} {nrun.msg}</div>
           {:else if nrun.phase === "done" && nrun.kind === "update"}
-            <div class="pref-desc">Up to date. Prefixes were moved to the newest runtime.</div>
+            {#if updatePrefixesNote}
+              <div class="pref-desc warn">Update finished. Prefixes: {updatePrefixesNote}</div>
+            {:else}
+              <div class="pref-desc">Up to date. Prefixes were moved to the newest runtime.</div>
+            {/if}
           {:else if nrun.phase === "error" && nrun.kind === "update"}
             <div class="pref-desc warn">⚠ {nrun.error}</div>
           {/if}
@@ -1105,8 +1127,13 @@
   {/if}
 
     <footer>
-      <span class="dot ok"></span>
-      Ready · Neutron CLI connected
+      {#if vers?.cli}
+        <span class="dot ok"></span>
+        Neutron CLI {vers.cli}
+      {:else if vers}
+        <span class="dot bad"></span>
+        Neutron CLI not installed
+      {/if}
     </footer>
   </main>
   </div>
