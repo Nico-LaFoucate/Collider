@@ -823,7 +823,7 @@
           </button>
           <button class="method-card" onclick={() => { mhMethod = "download"; loadCatalog(); }}>
             <div class="method-h">Download from Adobe</div>
-            <div class="method-d">Fetch genuine app files straight from Adobe. <b>No sign-in to install</b> — you activate once on first launch, inside the app.</div>
+            <div class="method-d">Fetch genuine app files straight from Adobe. <b>No sign-in to install</b> — you sign in inside the app, the same as on Windows.</div>
           </button>
         </section>
       {:else}
@@ -851,7 +851,7 @@
           {:else if mhInstall.phase === "done"}
             <div class="signin-card">
               <div class="signin-h">✓ {mhInstall.name} installed</div>
-              <div class="signin-d">Installed into {mhTarget}. It now appears in <b>Apps</b> — launch it there and sign in once, inside the app, to finish Adobe activation (licensing).</div>
+              <div class="signin-d">Installed into {mhTarget}. It now appears in <b>Apps</b> — launch it there and sign in inside the app, the same as on Windows.</div>
               <button class="primary" onclick={() => { view = "apps"; }}>Go to Apps</button>
               <button class="ghost" onclick={resetInstall}>Install another</button>
             </div>
@@ -863,7 +863,7 @@
           {:else if mhMethod === "download"}
             <div class="signin-card">
               <div class="signin-h">Choose an app to install</div>
-              <div class="signin-d">Genuine Adobe files download straight from Adobe — no sign-in needed to install. You activate (sign in) once on first launch, inside the app.</div>
+              <div class="signin-d">Genuine Adobe files download straight from Adobe — no sign-in needed to install. You sign in inside the app, the same as on Windows.</div>
               <div class="mh-target">
                 <label>Install into</label>
                 <input bind:value={mhTarget} spellcheck="false" />
@@ -990,9 +990,10 @@
         <div class="pref-group">
           <div class="pref-label">Window decoration theme</div>
           <div class="pref-desc">
-            Colors for Premiere's title bar, menu bar and window buttons (Neutron draws
-            its own frame). Pick a preset or edit any color to make a custom theme.
-            Applied to the prefix on launch — <b>restart Premiere to see changes</b>.
+            Colors for the title bar, menu bar and window buttons Neutron draws around
+            every app in the prefix, and for the dialogs Wine draws. Pick a preset or edit
+            any color to make a custom theme.
+            Applied to the prefix on launch — <b>restart the app to see changes</b>.
           </div>
           <div class="pref-row">
             {#each [...themePresets, { id: "custom", label: "Custom" }] as p}
@@ -1047,7 +1048,7 @@
           </div>
           <div class="pref-desc muted">
             Pick a style or import your own — a folder with <b>close</b>, <b>min</b>,
-            <b>max</b>, <b>restore</b> images (.png or .ico). Restart Premiere to apply;
+            <b>max</b>, <b>restore</b> images (.png or .ico). Restart the app to apply;
             the close button still highlights red on hover.
           </div>
 
@@ -1125,8 +1126,9 @@
           </div>
           {#if confirmUninstall}
             <div class="confirm">
-              <div>This removes Neutron's runtime, downloads, logs, menu entries, file associations
-                and Collider's settings. ntsync stays on.</div>
+              <div>This removes Neutron's runtime, downloads, logs, menu entries and icons, file
+                associations, the KWin script and rule, the neutron command, Mud Hut, and Collider
+                itself with its settings. ntsync stays on.</div>
               <label class="radio">
                 <input type="checkbox" bind:checked={uninstallPrefixes} />
                 Also delete my prefixes (the Adobe apps and their settings)

@@ -2,7 +2,7 @@
     "KPlugin": {
         "Id": "neutron-home-overlay",
         "Name": "Neutron Premiere Home Overlay",
-        "Description": "Repositions and resizes Adobe Premiere's Home/Welcome overlay so the main window's menu bar is visible and the overlay fits on screen.",
+        "Description": "Places Adobe Premiere's Home/Welcome overlay just below the main window's menu bar.",
         "Version": "1.0",
         "Authors": [
             {
