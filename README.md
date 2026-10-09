@@ -12,7 +12,7 @@
 
 Collider gives Linux users a friendly, GUI-based way to install, configure, and launch Adobe Creative Suite applications without touching the command line. Think of it as a creative-focused alternative to Lutris, built from the ground up for Adobe’s ecosystem.
 
-Under the hood, Collider manages a shared Wine prefix through Neutron, preserving full Adobe Dynamic Link interoperability between Premiere Pro and After Effects.
+Under the hood, Collider manages your Wine prefixes through Neutron. Premiere Pro and After Effects installed in the same prefix can use Adobe Dynamic Link between them; [Neutron's compatibility table](https://github.com/Nico-LaFoucate/neutron#compatibility) has its status for each release.
 
 -----
 
@@ -72,6 +72,8 @@ Collider has the same requirements as Neutron:
 - 64-bit Linux with glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, current Arch / CachyOS / Manjaro, openSUSE Tumbleweed) and a **Wayland** session
 - An **NVIDIA GPU**. AMD and Intel GPUs are not validated yet.
 - Up-to-date GPU drivers
+- **Python 3** and **cabextract**
+- **32-bit (multilib) system libraries**: Adobe's installer and licensing helpers are 32-bit.
 - A valid Adobe subscription or existing installation
 
 Neutron is tested on three machines, all CachyOS with KDE Plasma (Wayland) and NVIDIA GPUs.

@@ -1,56 +1,58 @@
 # Neutron Theming Subsystem
 
-Status: **in progress** — M1 (colors) under construction.
+Status: **shipped** (color themes and window-button icon sets, Collider 0.1.0).
 
-Lets the end user theme Premiere's client-side window decoration (CSD): the dark
-theme auto-applies as the default, and a **Preferences → Appearance** panel lets
-the user pick a preset, edit colors freely, and choose/import caption-button icons.
-Per-prefix; applied on launch (no separate apply step).
+Lets the end user theme the client-side window decoration (CSD) Neutron draws around
+every app's window: the dark theme applies as the default, and the **Preferences →
+Window decoration theme** section lets the user pick a preset, edit colors freely, and
+choose/import caption-button icons. One theme for all prefixes, written into a prefix
+when Collider launches an app from it; `neutron prefix provision` writes the default.
 
 ## Background
 
-Neutron's wine build draws Premiere's own non-client frame (title bar + menu bar +
-caption buttons) — see `neutron-wine` `neutron-winewayland-decoration` (CSD) and
+Neutron's wine build draws each app's own non-client frame (title bar + menu bar +
+caption buttons) — see `neutron-wine` `neutron-winewayland` (CSD) and
 `neutron-caption-buttons` (flat buttons). Everything the frame renders is driven by
 the Wine prefix's `HKCU\Control Panel\Colors`, so theming the frame = writing those
-colors into the prefix. That `.reg` write already happens automatically on every
-launch (`core/decoration.rs`). This subsystem turns that invisible bundled blob into
-the **serialized output of a real themes feature**.
+colors into the prefix. The engine writes them: Collider sends a customized or
+non-default palette to `neutron theme apply --prefix P --colors -` before a launch,
+and runs `neutron theme apply --prefix P` (the default) otherwise.
 
 ## Model
 
-A *theme* = `{ colors, buttonIconSet }`, stored in Collider settings and serialized
-into the target prefix as:
+A *theme* = `{ colors, buttonIconSet }`, stored in Collider settings. The default
+theme is the engine's (`DEFAULT_THEME_COLORS` in `bin/neutron`), written by
+`prefix provision` and by `theme apply` without `--colors`. Collider's Dark and Light
+presets (`core/theme.rs`) are what the editor shows.
 
-1. **Colors** → a generated `.reg` written to `HKCU\Control Panel\Colors`
-   (`core/theme.rs` is the single source of truth for the built-in presets).
-2. **Button icons** → an icon asset dir inside the prefix + a registry pointer the
-   wine-side drawer reads (M3).
+1. **Colors** → `neutron theme apply` writes them to `HKCU\Control Panel\Colors`.
+2. **Button icons** → `neutron theme icons` copies the set into the prefix and sets the
+   registry pointer the wine-side drawer reads.
 
-The existing `decoration::apply(prefix)` on-launch path writes both. The bundled
-static `.reg` resource is **replaced** by `theme.rs`-generated output (so the dark
-preset has one definition, not two that can drift).
+`decoration::apply(prefix)` runs both commands on the way into every launch.
 
 ## Colors (M1 — no wine change)
 
 The flat-button renderer and frame already read everything from `Control Panel\Colors`,
-so the panel only edits + serializes them. UI groups → keys:
+so the panel only edits + serializes them. The editor's groups → keys
+(`COLOR_GROUPS` in `src/routes/+page.svelte`):
 
-| UI group  | Keys |
-|-----------|------|
-| Title bar | `ActiveTitle`, `GradientActiveTitle`, `TitleText`, `InactiveTitle`, `GradientInactiveTitle`, `InactiveTitleText`, `ActiveBorder`, `InactiveBorder`, `WindowFrame` |
-| Menu bar  | `Menu`, `MenuBar`, `MenuText`, `MenuHilight` |
-| Window    | `Window`, `WindowText`, `HilightText` |
-| Buttons   | `ButtonFace`(general 3D ctrl face), `ButtonText`(glyph), `ButtonShadow`(press), `ButtonHilight`(min/max hover), `ButtonLight`, `ButtonDkShadow`, `3DLight`, `3DDarkShadow` |
+| UI group            | Keys |
+|---------------------|------|
+| Title bar & buttons | `ActiveTitle`, `TitleText`, `InactiveTitle` |
+| Menu bar            | `MenuBar`, `MenuText`, `MenuHilight` |
+| Window              | `Window`, `WindowText`, `WindowFrame` |
+| Dialogs & controls  | `ButtonFace`, `ButtonText`, `ButtonShadow` (message boxes, common dialogs, and any control an app doesn't draw itself) |
 
-Caption-button states map to: `ActiveTitle`→normal bg, `ButtonShadow`→press,
-`ButtonHilight`→min/max hover, `ButtonText`→glyph. **Close-hover red + white glyph
+The presets set further keys (gradients, borders, the other button shades) that the
+editor doesn't show. Caption buttons take their colors from the caption palette
+(neutron-wine `zzzzzzzzzp`/`q`/`r`): `ActiveTitle` → button background, with the hover
+and press shades derived from it; `TitleText` → glyph. **Close-hover red + white glyph
 are hardcoded in the wine patch** (intentional, like Windows) and not themeable.
 
-Presets: **Dark (default), Light**, with **Match-system** to follow (read the KDE
-color scheme; falls back to Dark). Plus **Reset to Dark** and a frontend contrast
+Presets: **Dark (default), Light**. Plus **Reset to Dark** and a frontend contrast
 guard (warn on unreadable text/bg pairs). Changes need a **relaunch** to show (NC
-colors are read at window creation) → panel shows a "Restart Premiere to apply" hint.
+colors are read at window creation) → the section shows a "Restart the app to apply" hint.
 
 ## Custom icons — wine patch, Route A (M3)
 
@@ -67,41 +69,43 @@ callback (the same path uxtheme uses):
    else → the current flat fill + Marlett glyph (relocated verbatim, so default
    behavior is byte-identical). Missing/failed load → graceful fallback to the glyph.
 
-Assets in-prefix: `drive_c/windows/neutron/caption/<setid>/{close,min,max,restore}[_hover][_press].png`,
-advertised via `HKCU\Software\Neutron\Caption` (`Enabled`, `IconDir`). Format: PNG with
-alpha (WIC in user-mode), `.ico` also accepted; scaled to `SM_CXSIZE` per-DPI.
+Assets in-prefix: `drive_c/windows/neutron/caption/<setid>/{close,min,max,restore}.ico`,
+advertised via `HKCU\Software\Neutron\Caption` (`Enabled`, `IconDir`). Format: `.ico`
+only (loaded with user32's own `LoadImageW`, no WIC in the non-client paint path),
+scaled to the button size. The drawer also looks for optional `<button>_hover.ico` /
+`<button>_press.ico` and falls back to the base icon.
 
-Supply model: **bundled sets + import**. Ship curated sets (Windows-11, macOS
-traffic-lights, minimal/square) as Collider resources; **Import** copies/validates
-user files into the prefix asset dir.
+Supply model: **bundled sets + import**. Collider ships four sets (macOS, Windows 11,
+Minimal, Adobe flat) and imports a folder of close/min/max/restore images
+(.png/.jpg/.bmp/.ico, re-encoded to .ico) into `~/.config/collider/caption-custom`.
+`neutron theme icons --prefix P --from <folder> --name <id>` copies the four .ico files
+to `C:\windows\neutron\caption\<id>` and sets `HKCU\Software\Neutron\Caption`
+(`Enabled`, `IconDir`); `--off` returns to Wine's glyphs.
 
-## Contract (Collider ↔ wine patch)
+## Contract (engine ↔ wine patch)
 
-- **Colors:** `HKCU\Control Panel\Colors` (existing; M1 writes it).
-- **Icons:** `HKCU\Software\Neutron\Caption` → `Enabled` (bool), `IconDir` (prefix path).
-  The user-mode drawer reads these (M3).
+- **Colors:** `HKCU\Control Panel\Colors` (written by `neutron theme apply`).
+- **Icons:** `HKCU\Software\Neutron\Caption` → `Enabled` (bool), `IconDir` (prefix path),
+  written by `neutron theme icons`. The user-mode drawer reads these (M3).
 
 ## Milestones
 
-- **M1** Colors: `theme.rs` (presets + `.reg` generation), settings (`theme` +
-  `custom_colors`), `decoration` generates the `.reg` from the active theme,
-  Preferences → Appearance panel (preset picker, per-group color editors, reset,
-  contrast guard, relaunch hint). **No wine change.** ← *current*
-- **M2** Wine patch: caption buttons routed through the `NtUserDrawNonClientButton`
+- **M1** ✅ Colors: `theme.rs` (presets), settings (`theme` + `custom_colors`), the
+  Preferences → Window decoration theme section (preset picker, per-group color
+  editors, reset, contrast guard, relaunch hint). **No wine change.** Collider generated
+  the `.reg` itself until 2026-09-11; the engine writes it now (see Model).
+- **M2** ✅ Wine patch: caption buttons routed through the `NtUserDrawNonClientButton`
   callback; current flat default relocated to the user-mode drawer (behavior-identical).
 - **M3** ✅ Custom-icon load/blit (neutron-wine, shipped) + Collider asset pipeline:
   `core/caption_icons.rs` embeds 4 bundled sets (macOS / Windows-11 / minimal / Adobe-flat)
-  and installs the chosen set into the prefix; `decoration::apply` writes
-  `HKCU\Software\Neutron\Caption` (Enabled/IconDir); import converts user PNG/JPG/BMP/ICO →
-  `.ico` (the `image` crate) into `~/.config/collider/caption-custom`; Appearance panel has a
-  set picker + Import button. Verified live (bundled + imported render in Premiere).
-- **M4** Polish: Match-system preset, uninstall/reset, retire `window_rule.rs` (fold
-  positioning into the KWin overlay script driven by `home_window_y`), live-apply
-  investigation.
+  and hands the chosen set's folder to `neutron theme icons`, which installs it into the
+  prefix and writes `HKCU\Software\Neutron\Caption` (Enabled/IconDir); import converts user
+  PNG/JPG/BMP/ICO → `.ico` (the `image` crate) into `~/.config/collider/caption-custom`; the
+  section has a set picker + Import button. Verified live (bundled + imported render in Premiere).
 
 ## Resolved decisions
 
-- Per-state icons: accept up to 3 assets (normal/hover/press) per button; fall back to
-  a single base + auto-tint when only one is supplied.
+- Per-state icons: the drawer uses `_hover` / `_press` variants when present and falls
+  back to the base icon; Collider's sets and imports supply only the four base icons.
 - Apply timing: relaunch (live NC repaint via `WM_SYSCOLORCHANGE` is unreliable for NC).
-- First bundled sets: Windows-11, macOS traffic-lights, minimal/square.
+- Bundled sets: macOS, Windows 11, Minimal, Adobe flat.

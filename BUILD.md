@@ -4,8 +4,8 @@ Most people don't need to build Collider: `neutron setup` installs the release A
 is for working on Collider itself.
 
 Collider is a Tauri 2 app: a Svelte front end with a Rust back end. It drives the `neutron` and
-`mudhut` commands, so install Neutron first (`neutron setup`) and make sure both are on your `PATH`.
-Without them, Collider shows **Set up**, which installs them.
+`mudhut` commands, so install Neutron first (`neutron setup`), which puts both on your `PATH`.
+Without the CLI or neutron-wine, Collider shows **Set up**, which installs everything.
 
 ## 1. Install the toolchain
 

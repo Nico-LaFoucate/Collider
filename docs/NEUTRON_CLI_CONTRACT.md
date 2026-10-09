@@ -1,40 +1,41 @@
 # Neutron CLI Contract (v0)
 
 *The engine's front door. Collider depends on this. This is the contract — implement
-in the Neutron repo (LGPL v2.1). For MVP, commands may wrap the existing proven
-launcher logic; the contract is the stable surface, internals can evolve.*
+in the Neutron repo (LGPL-2.1-or-later). The contract is the stable surface; internals can
+evolve. (Historical: the first version's commands wrapped the existing launcher logic.)*
 
-> **SHIPPED (v0) — reconciled with COLLIDER_INTEGRATION_HANDOFF.md.** The CLI now
-> exists and is tested. Real-world deltas from this idealized contract:
+> **SHIPPED (v0).** The CLI now exists and is tested. Real-world deltas from this idealized
+> contract:
 > - `--json` is a **top-level flag, before the subcommand**: `neutron --json prefix info <path>`.
 > - Non-zero exits also emit a **JSON error object** on stdout (`error_code` + `reason`) —
 >   parse it; surface `reason` to the user.
 > - Exit `4` means **dependency missing OR feature unavailable in v0**. `launch --software`
 >   returns exit 4 — software mode is an honest v0 gap; Collider must not offer it.
 > - `prefix info` and `doctor` carry `"_schema": "provisional-v0"`; their `neutron_stack`
->   and `checks` are **not frozen** until the minimal-stack cleanup (hardening §5.2).
-> - `apply-display-fix`, `launch` (GPU), and `hwmux start/stop` are **finalized** — safe to
->   integrate against now.
+>   and `checks` are **not frozen** until the minimal-stack cleanup.
+> - `apply-display-fix` and `launch` (GPU) are **finalized** — safe to integrate against now.
+>   (This line used to list `hwmux start/stop` too; see the corrections below.)
 
 > ## ⛔ CORRECTIONS — 2026-08-07 (this document has drifted; trust the CLI, not this file)
 > - **`hwmux start/stop` NO LONGER EXISTS.** It was removed from the engine in neutron commit
->   `678cb60` ("retire collider-hwmux") — the daemon was a workaround for broken muxing, and the
+>   `272ece2` ("retire collider-hwmux") — the daemon was a workaround for broken muxing, and the
 >   real fix (the ucrtbase `_wstat64` shim) made it unnecessary. Calling it returns an argparse
 >   error, not a JSON object. Collider called it until 2026-08-06 and reported every export-app
->   launch as Failed as a result. Do not reintroduce it. The line above marking it "finalized —
->   safe to integrate against" is **wrong** and is left in place only so this correction has
->   something to point at.
+>   launch as Failed as a result. Do not reintroduce it. The line above once marked it
+>   "finalized — safe to integrate against"; that was **wrong**.
 > - **New: `teardown --app <id> --prefix <p>`** — closes ONE app, leaving the prefix's other apps
 >   running, and sweeps Adobe's shared daemons when the last app exits. Use this on app exit; a
 >   bare `kill(pid)` leaks Adobe helpers that wedge the next launch.
-> - Current subcommand set: `prefix {info,apply-display-fix,provision}`, `launch`, `apps`,
->   `teardown`, `doctor`, `runtime`.
+> - Current subcommand set: `display`, `prefix {info,apply-display-fix,provision}`, `launch`,
+>   `apps`, `teardown`, `gates`, `theme {apply,show,icons}`, `window-rule`, `fonts {check,repair}`,
+>   `doctor`, `setup`, `update`, `uninstall`, `runtime {install,which}`.
 > - **New: `--progress`** (top-level, with `--json`) — streams newline-delimited
 >   `{event:progress|note|error|result}` before the terminal object, the same NDJSON contract Mud
->   Hut uses. Currently implemented for `prefix provision`. ⚠️ **Opt-in on purpose:** Mud Hut runs
->   `neutron prefix provision` with INHERITED stdout, so streaming by default would inject these
->   lines into Mud Hut's own stream and Collider would read neutron's result as Mud Hut's. Without
->   `--progress` the output is byte-compatible with before: exactly one object, no `event` key.
+>   Hut uses. Implemented for `prefix provision`, `setup` and `update`. ⚠️ **Opt-in on
+>   purpose:** Mud Hut runs `neutron prefix provision` with INHERITED stdout, so streaming by
+>   default would inject these lines into Mud Hut's own stream and Collider would read neutron's
+>   result as Mud Hut's. Without `--progress` the output is byte-compatible with before: exactly
+>   one object, no `event` key.
 >
 > ⚠️ **This file is hand-maintained and nothing enforces it against the CLI.** That is exactly how
 > the hwmux drift survived. Verify against `neutron --help` before building on any claim here.
@@ -47,7 +48,7 @@ launcher logic; the contract is the stable surface, internals can evolve.*
    (one object per call, success OR failure), human `[neutron] …` logs to stderr.
    Collider parses stdout only.
 2. **Exit codes are meaningful:** `0` success, `1` generic failure, `2` prefix not
-   found / invalid, `3` Premiere running (can't edit prefs), `4` dependency missing
+   found / invalid, `3` an Adobe app is running in the prefix, `4` dependency missing
    **or feature unavailable in v0**.
 3. **Idempotent where possible:** `apply-display-fix` on an already-fixed prefix is a
    no-op success, not an error.
@@ -68,10 +69,11 @@ Inspect a prefix. Resolves and reports paths Collider needs.
   "documents_symlink": "/path/to/prefix/drive_c/users/<user>/Documents",
   "documents_real": "~/Documents",
   "display_fix_applied": true,
-  "neutron_stack": { "wine": "wine-tkg-...", "dxvk": "...", "vkd3d": "..." }
+  "neutron_stack": { "wine": "...", "dxvk": "...", "vkd3d": "..." }
 }
 ```
-`documents_real` is the symlink-resolved target — the value the hwmux watch path must use.
+`documents_real` is the symlink-resolved target. (Historical: it was the watch path of the
+retired hwmux daemon.) `neutron_stack.wine` is whatever `wine --version` prints.
 
 ### `neutron prefix apply-display-fix <path> [--json]`
 Write `DS.DisableDirectXDisplay=true` into `Debug Database.txt` (CRLF, tab-separated,
@@ -81,11 +83,13 @@ key/current/default). Idempotent. Exit `3` if Premiere is running.
 ```
 
 ### `neutron launch <app> --prefix <path> [--json] [--gpu|--software]`
-Launch an app through the Neutron stack with correct env + DLL overrides. This folds in
-the current `~/.local/bin/premiere` logic. `<app>` = `premiere` for MVP. Returns the
-spawned PID so Collider can supervise / tie daemon lifecycle to it.
+Launch an app through the Neutron stack with correct env + DLL overrides. `<app>` is any
+profile `neutron launch --help` lists (premiere, photoshop, lightroom, lightroomcc, animate,
+mediaencoder, aftereffects, illustrator). Returns the spawned PID so Collider can supervise
+it. (Historical: the first version launched Premiere only.)
 ```json
-{ "launched": true, "app": "premiere", "pid": 48213, "gpu_mode": "gpu" }
+{ "ok": true, "launched": true, "app": "premiere", "pid": 48213, "gpu_mode": "gpu",
+  "display": "wayland", "neutron_wine": true, "log": "..." }
 ```
 
 ### `neutron fonts check --prefix <path> [--json]` (added 2026-09-13)
@@ -135,40 +139,54 @@ release (checked against `SHA256SUMS`) and runs its `setup`.
 Removes what setup installed, Collider's settings and the KWin script/rule. Prefixes only with
 `--delete-prefixes` (Collider asks separately; default keep).
 
+### `neutron theme apply --prefix <path> [--colors <file>|-] [--json]`
+Writes the theme into the prefix (`HKCU\Control Panel\Colors`). With `--colors`, the palette
+(a JSON object of `{key: "R G B"}`, from a file or `-` for stdin) replaces the default. Collider
+runs it before every launch; `prefix provision` applies the default.
+
 ### `neutron theme icons --prefix <path> (--from <dir> [--name <id>] | --off) [--json]` (added 2026-10-05)
 Installs a window-button icon set (close/min/max/restore `.ico` in `<dir>`) into the prefix and
 writes `HKCU\Software\Neutron\Caption`. Collider owns the sets and passes a folder.
 
 ### `neutron window-rule premiere-home (--y <px> | --off) [--json]` (added 2026-10-05)
-The optional KWin rule keeping Premiere's home screen below the menu bar.
+The optional KWin rule that force-positions Premiere's windows that have an empty title. That
+match also catches Premiere's splash screen, so the rule is off by default.
 `{ "ok": true, "supported": bool, "enabled": bool }`.
 
 ### `neutron doctor [--prefix <path>] [--json]`
-Health check: stack present? DLL overrides set? deps (ffmpeg, inotify-tools) installed?
-Powers Collider's "is the prefix healthy" status surface.
+Health check of what affects launching and running the apps: the runtime and its integrity,
+ntsync, and, with `--prefix`, the prefix, its runtime stamp and graphics driver, the Adobe apps
+in it, Microsoft components, WebView2, fonts, CEP flags and the Premiere display fix. Powers
+Collider's "is the prefix healthy" status surface.
 ```json
 {
+  "ok": true,
   "healthy": true,
   "checks": [
-    { "name": "wine-tkg", "ok": true },
-    { "name": "ffmpeg", "ok": true },
-    { "name": "inotify-tools", "ok": true },
-    { "name": "display_fix", "ok": true },
+    { "name": "wine", "ok": true, "detail": "... (Neutron runtime)" },
+    { "name": "ntsync", "ok": true, "detail": "..." },
+    { "name": "prefix", "ok": true, "detail": "/path/to/prefix" },
+    { "name": "display_fix", "ok": true, "detail": "pending — applied automatically on Premiere's first launch", "pending": true },
     { "name": "webview2", "ok": true, "detail": "154.0.4258.62 ...", "warning": true }
-  ]
+  ],
+  "_schema": "provisional-v0"
 }
 ```
+`"pending": true` marks a step that hasn't happened yet (`ok` stays true).
 `"warning": true` marks a check that passes but needs the user's attention (ntsync not active, an
 untested WebView2 version). Collider shows it with a yellow dot and `detail` as the tooltip.
 
 ---
 
-## The hwmux daemon — ownership (RESOLVED → Option A)
+## Historical: the hwmux daemon — ownership (RESOLVED → Option A)
+
+> **Historical.** The hwmux daemon and `neutron hwmux` were retired (see the corrections at the
+> top); native muxing replaced them. This section is kept for context only.
 
 **Decision:** Neutron owns the daemon (script, muxing logic, AND the config/target
 knowledge). Collider supervises the process lifecycle only.
 
-Flow today (daemon does not yet self-detect its target):
+Flow at the time (the daemon did not self-detect its target):
   1. Collider calls `neutron prefix info --json`, reads `documents_real`
      (the symlink-resolved watch path — Neutron computed it, Collider didn't).
   2. Collider carries that value into `neutron hwmux start --watch <documents_real>`.
