@@ -156,7 +156,7 @@ fn reconfigure() -> Result<(), String> {
     ]))
 }
 
-// ---- shared helpers (mirrors window_rule.rs) ------------------------------
+// ---- shared helpers -------------------------------------------------------
 
 fn run_ok(cmd: &mut std::process::Command) -> Result<(), String> {
     let out = cmd.output().map_err(|e| format!("spawn failed: {e}"))?;

@@ -6,6 +6,12 @@
 //
 // Robustness contract: load() NEVER panics — a missing or corrupt file yields
 // defaults, so a bad config can never wedge the app.
+//
+// Keys this struct no longer has are ignored on load (serde's default; do NOT add
+// `deny_unknown_fields`). Collider 0.1.0 wrote `home_window_fix`, `home_window_y` and
+// `settings_migration` for the Premiere home-screen position setting, removed in 0.1.1;
+// a config that still carries them must load with every other setting intact, or the
+// fallback to defaults would forget the user's prefixes. The test below holds that.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -17,42 +23,6 @@ pub struct Settings {
     pub scale_mode: String,
     /// The manual display-scale override (used only when scale_mode == "manual").
     pub scale_value: Option<f64>,
-
-    /// Wayland-only: pin Premiere's home/Welcome window so it stops loading too
-    /// high over the menu bar (Wayland forbids client toplevel positioning, so
-    /// winewayland forces it to the top). Applied via the compositor's window-rule
-    /// mechanism (KWin today). No-op on X11 / unsupported compositors.
-    ///
-    /// 🚨 DEFAULT OFF since 2026-09-01, and it used to default ON. The KWin rule
-    /// matches "empty caption + Premiere's wmclass" (the exe name up to runtime 11.10-94,
-    /// `neutron-premiere-<prefix>` from 95 on -- see window_rule.rs), which we believed
-    /// uniquely identified the home overlay. It does not: Premiere's SPLASH also maps
-    /// with an empty caption, so a Force rule pinned the splash to (0,82) too. On a
-    /// build tester's machine that read as "the splash renders top-left every launch,
-    /// starting with the drop", and it was chased through 11.10-69, -69r2, -69r3, -70
-    /// and -71 entirely inside Wine. A Force rule overrides client AND compositor
-    /// placement, so every Wine-side gate we tested came back null for reasons
-    /// unrelated to its merit. `home_window_y` is dev-box-specific as well (82 was
-    /// verified at 4K @ 1.7x; the tester runs 2.25).
-    ///
-    /// Re-enabling needs a predicate that cannot match the splash. Until then the
-    /// underlying issue is cosmetic and drag-to-fix, which is what our own June
-    /// investigation recommended accepting.
-    #[serde(default = "default_home_window_fix")]
-    pub home_window_fix: bool,
-    /// Logical-pixel Y the home window is pinned to. Setup-specific (scale/monitor),
-    /// so it's user-tweakable. Default 82 (verified good at 4K @ 1.7×).
-    #[serde(default = "default_home_window_y")]
-    pub home_window_y: i32,
-
-    /// Bumped when a stored setting must be forcibly corrected on load. Flipping a
-    /// serde default only affects configs MISSING the field, so machines that already
-    /// persisted `home_window_fix: true` would keep the harmful rule and the repair
-    /// would silently do nothing there -- the exact "fix the source, leave the
-    /// artifact" failure this project has hit twice. Migration 1 turns the home-window
-    /// fix off once and removes any rule we previously installed.
-    #[serde(default)]
-    pub settings_migration: u32,
 
     /// Window-decoration color theme: a built-in preset id ("dark" | "light") or
     /// "custom". Drives the .reg written into the prefix on launch (core/theme.rs +
@@ -93,8 +63,6 @@ pub struct PrefixEntry {
     pub path: String,
 }
 
-fn default_home_window_fix() -> bool { false }
-fn default_home_window_y() -> i32 { 82 }
 fn default_theme() -> String { "dark".into() }
 fn default_button_icon_set() -> String { "none".into() }
 
@@ -103,9 +71,6 @@ impl Default for Settings {
         Self {
             scale_mode: "auto".into(),
             scale_value: None,
-            home_window_fix: default_home_window_fix(),
-            home_window_y: default_home_window_y(),
-            settings_migration: SETTINGS_MIGRATION,
             theme: default_theme(),
             custom_colors: None,
             button_icon_set: default_button_icon_set(),
@@ -124,48 +89,14 @@ fn config_path() -> Option<PathBuf> {
 pub fn load() -> Settings {
     let Some(p) = config_path() else { return Settings::default() };
     match std::fs::read_to_string(&p) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Ok(s) => parse(&s),
         Err(_) => Settings::default(),
     }
 }
 
-/// Current stored-settings migration level. Bump when a persisted value must be
-/// corrected on machines that already wrote it.
-pub const SETTINGS_MIGRATION: u32 = 2;
-
-/// Correct persisted settings that a changed default cannot reach.
-///
-/// Migration 1 (2026-09-01): `home_window_fix` used to default ON and installs a KWin
-/// rule that Force-pins any empty-captioned Premiere window to (0,82). Premiere's
-/// SPLASH is empty-captioned, so the rule mispositions it on every launch. Flipping the
-/// serde default only helps configs that never stored the field; every machine that did
-/// would keep both the setting and the installed rule. So turn it off AND remove the
-/// rule we wrote, then record that we did it.
-pub fn migrate() {
-    let mut s = load();
-    if s.settings_migration >= SETTINGS_MIGRATION {
-        return;
-    }
-    // Migration 1: the home-window fix defaulted ON and installs a KWin rule that Force-pins
-    // any empty-captioned Premiere window to (0,82) -- which catches the SPLASH. Turn it off.
-    if s.settings_migration < 1 {
-        s.home_window_fix = false;
-    }
-    // Migration 2 (2026-09-02): migration 1's kde_remove() only dropped our id from the
-    // [General] rules list and left [neutron-premiere-home] on disk, still reading
-    // positionrule=2 on any machine that had not hand-edited it -- deregistered but armed, one
-    // rules= edit from live. kde_remove() now deletes the stanza's keys, but a machine that
-    // already recorded migration 1 would never run it again, so the corrected code reached only
-    // the machines that never had the problem. Build tester, 2026-09-02: "the improved deletion
-    // reaches machines that never ran 72's Collider, and misses every machine that did. Those
-    // are exactly the machines that have the artefact."
-    //
-    // Keying a corrected migration to a version already marked complete is the same
-    // repair-the-source-leave-the-artifact shape as the two bugs the drop before it fixed. So
-    // both levels end by re-asserting the rule state through the CURRENT removal code.
-    let _ = crate::core::window_rule::apply(&s);
-    s.settings_migration = SETTINGS_MIGRATION;
-    let _ = save(&s);
+/// The stored JSON as Settings; defaults if it does not parse.
+fn parse(json: &str) -> Settings {
+    serde_json::from_str(json).unwrap_or_default()
 }
 
 /// Persist settings, creating ~/.config/collider/ if needed.
@@ -193,4 +124,51 @@ pub fn effective_scale() -> Option<f64> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A config written by Collider 0.1.0, which still had the Premiere home-screen position
+    // setting. Its keys are gone from Settings; the file must still load as the user's settings,
+    // not fall back to defaults (which would drop the registered prefixes).
+    const CONFIG_0_1_0: &str = r#"{
+  "scale_mode": "manual",
+  "scale_value": 1.75,
+  "home_window_fix": true,
+  "home_window_y": 82,
+  "settings_migration": 2,
+  "theme": "light",
+  "custom_colors": null,
+  "button_icon_set": "win11",
+  "prefixes": [
+    { "name": "Adobe 2025", "path": "/data/prefixes/adobe-2025" }
+  ],
+  "selected_prefix": "/data/prefixes/adobe-2025"
+}"#;
+
+    #[test]
+    fn config_with_removed_home_screen_keys_loads() {
+        let s: Settings = serde_json::from_str(CONFIG_0_1_0)
+            .expect("a 0.1.0 config with the removed home-screen keys must deserialize");
+        assert_eq!(s.scale_mode, "manual");
+        assert_eq!(s.scale_value, Some(1.75));
+        assert_eq!(s.theme, "light");
+        assert_eq!(s.button_icon_set, "win11");
+        assert_eq!(s.prefixes.len(), 1);
+        assert_eq!(s.prefixes[0].name, "Adobe 2025");
+        assert_eq!(s.selected_prefix.as_deref(), Some("/data/prefixes/adobe-2025"));
+
+        // load() goes through parse(), which must keep the same settings rather than defaults.
+        let p = parse(CONFIG_0_1_0);
+        assert_eq!(p.prefixes.len(), 1);
+        assert_eq!(p.theme, "light");
+
+        // Saving writes the current keys only, so the old ones drop out of the file.
+        let out = serde_json::to_string(&s).unwrap();
+        for gone in ["home_window_fix", "home_window_y", "settings_migration"] {
+            assert!(!out.contains(gone), "{gone} should not be written any more");
+        }
+    }
 }

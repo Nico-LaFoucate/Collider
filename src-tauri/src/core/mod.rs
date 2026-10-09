@@ -4,7 +4,6 @@ pub mod prefixes;
 pub mod launch;
 pub mod display;
 pub mod settings;
-pub mod window_rule;
 pub mod decoration;
 pub mod theme;
 pub mod caption_icons;

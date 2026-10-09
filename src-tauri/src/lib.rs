@@ -9,9 +9,6 @@ use commands::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Run stored-settings migrations BEFORE the UI can read or rewrite settings.
-    core::settings::migrate();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -41,7 +38,6 @@ pub fn run() {
             commands::get_settings,
             commands::set_settings,
             commands::detect_scale,
-            commands::compositor_info,
             commands::get_theme_presets,
             commands::get_icon_sets,
             commands::import_icon_set,

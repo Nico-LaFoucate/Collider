@@ -1,6 +1,6 @@
 <script>
   import { prefixInfo, doctor, listApps,
-           getSettings, setSettings, detectScale, compositorInfo, getThemePresets, getIconSets,
+           getSettings, setSettings, detectScale, getThemePresets, getIconSets,
            importIconSet, versions, neutronSetup, neutronUninstall,
            mudhutApps, installApp, workingPrefix,
            listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
@@ -177,11 +177,10 @@
     }
   }
 
-  let settings = $state({ scale_mode: "auto", scale_value: 1.5, home_window_fix: true, home_window_y: 82,
+  let settings = $state({ scale_mode: "auto", scale_value: 1.5,
                           theme: "dark", custom_colors: null, button_icon_set: "none" });
   let iconSets = $state([]);                                  // [{ id, label }] from the backend
   let detectedScale = $state(null);                           // `neutron display`: { scale, dpi, windows_step, warning, ... }
-  let compositor = $state(null);                              // { wayland, desktop, home_rule_supported }
   // The Windows scale steps (DECISIONS C21): Adobe's UI is laid out for these, and anything in
   // between renders slightly off.
   const SCALE_STEPS = [1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 3];
@@ -483,7 +482,6 @@
     view = "preferences";
     loadVersions();
     try { detectedScale = await detectScale(); } catch (_) { detectedScale = null; }
-    try { compositor = await compositorInfo(); } catch (_) { compositor = null; }
     try { themePresets = await getThemePresets(); } catch (_) { themePresets = []; }
     try { iconSets = await getIconSets(); } catch (_) { iconSets = []; }
   }
@@ -497,15 +495,12 @@
   }
 
   // Persist on any change. "auto unless overridden": engine uses scale_value only
-  // when scale_mode === "manual". set_settings also (re)writes the Wayland
-  // home-window compositor rule, so toggling it takes effect immediately.
+  // when scale_mode === "manual".
   async function saveSettings() {
     try {
       await setSettings({
         scale_mode: settings.scale_mode,
         scale_value: settings.scale_value,
-        home_window_fix: settings.home_window_fix,
-        home_window_y: settings.home_window_y,
         theme: settings.theme,
         custom_colors: settings.custom_colors,
         button_icon_set: settings.button_icon_set,
@@ -1060,41 +1055,6 @@
           </div>
         </div>
 
-        {#if compositor?.wayland}
-        <div class="pref-group">
-          <div class="pref-label">Premiere home-screen position (Wayland)</div>
-          <div class="pref-desc">
-            On Wayland, Premiere's home/Welcome screen loads too high and covers the menu
-            bar (Wayland doesn't let apps position their own windows). This pins it back into
-            place via a compositor window rule.
-            {#if !compositor.home_rule_supported}
-              <b>Not supported on your compositor ({compositor.desktop}) yet.</b>
-            {/if}
-          </div>
-          <div class="pref-row">
-            <label class="radio">
-              <input type="checkbox" disabled={!compositor.home_rule_supported}
-                     bind:checked={settings.home_window_fix} onchange={saveSettings} />
-              Fix home-screen position
-            </label>
-            {#if settings.home_window_fix && compositor.home_rule_supported}
-              <label class="muted" style="display:flex;align-items:center;gap:6px;">
-                Y offset
-                <input class="scale-input" type="number" min="0" max="600" step="1"
-                       bind:value={settings.home_window_y} onchange={saveSettings} />
-                px
-              </label>
-            {/if}
-          </div>
-          {#if settings.home_window_fix && compositor.home_rule_supported}
-            <div class="pref-desc muted">
-              Tweak the Y offset if it still doesn't sit right (it depends on your resolution
-              and scale). Lower = higher on screen.
-            </div>
-          {/if}
-        </div>
-        {/if}
-
         <div class="pref-group">
           <div class="pref-label">Neutron</div>
           <div class="pref-desc">
@@ -1240,7 +1200,6 @@
   .radio { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: rgba(255,255,255,0.8); cursor: pointer; }
   .radio input { accent-color: #9a5cf5; }
   .muted { color: rgba(255,255,255,0.4); }
-  .scale-input { width: 84px; padding: 6px 8px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: #e8e8ec; font-size: 12.5px; }
   /* Appearance / theme editor */
   .theme-editor { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 22px; margin-top: 14px; }
   .theme-col-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: rgba(255,255,255,0.35); margin-bottom: 7px; }

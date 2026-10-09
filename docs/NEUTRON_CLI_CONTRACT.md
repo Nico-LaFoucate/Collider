@@ -27,8 +27,8 @@ evolve. (Historical: the first version's commands wrapped the existing launcher 
 >   running, and sweeps Adobe's shared daemons when the last app exits. Use this on app exit; a
 >   bare `kill(pid)` leaks Adobe helpers that wedge the next launch.
 > - Current subcommand set: `display`, `prefix {info,apply-display-fix,provision}`, `launch`,
->   `apps`, `teardown`, `gates`, `theme {apply,show,icons}`, `window-rule`, `fonts {check,repair}`,
->   `doctor`, `setup`, `update`, `uninstall`, `runtime {install,which}`.
+>   `apps`, `teardown`, `gates`, `theme {apply,show,icons}`, `fonts {check,repair}`, `doctor`,
+>   `setup`, `update`, `uninstall`, `runtime {install,which}`.
 > - **New: `--progress`** (top-level, with `--json`) — streams newline-delimited
 >   `{event:progress|note|error|result}` before the terminal object, the same NDJSON contract Mud
 >   Hut uses. Implemented for `prefix provision`, `setup` and `update`. ⚠️ **Opt-in on
@@ -136,8 +136,9 @@ Update buttons; when the CLI is missing, Collider downloads it from the neutron 
 release (checked against `SHA256SUMS`) and runs its `setup`.
 
 ### `neutron uninstall --yes [--delete-prefixes] [--json]` (added 2026-10-05)
-Removes what setup installed, Collider's settings and the KWin script/rule. Prefixes only with
-`--delete-prefixes` (Collider asks separately; default keep).
+Removes what setup installed, Collider's settings, the KWin script, and the KWin window rule an
+earlier version could install. Prefixes only with `--delete-prefixes` (Collider asks separately;
+default keep).
 
 ### `neutron theme apply --prefix <path> [--colors <file>|-] [--json]`
 Writes the theme into the prefix (`HKCU\Control Panel\Colors`). With `--colors`, the palette
@@ -147,11 +148,6 @@ runs it before every launch; `prefix provision` applies the default.
 ### `neutron theme icons --prefix <path> (--from <dir> [--name <id>] | --off) [--json]` (added 2026-10-05)
 Installs a window-button icon set (close/min/max/restore `.ico` in `<dir>`) into the prefix and
 writes `HKCU\Software\Neutron\Caption`. Collider owns the sets and passes a folder.
-
-### `neutron window-rule premiere-home (--y <px> | --off) [--json]` (added 2026-10-05)
-The optional KWin rule that force-positions Premiere's windows that have an empty title. That
-match also catches Premiere's splash screen, so the rule is off by default.
-`{ "ok": true, "supported": bool, "enabled": bool }`.
 
 ### `neutron doctor [--prefix <path>] [--json]`
 Health check of what affects launching and running the apps: the runtime and its integrity,

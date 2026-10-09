@@ -327,16 +327,6 @@ pub fn caption_icons(prefix: &str, dir: Option<(&str, &str)>) -> anyhow::Result<
     }
 }
 
-/// The optional KWin rule that keeps Premiere's home screen below the menu bar.
-pub fn home_window_rule(enabled: bool, y: i32) -> anyhow::Result<Value> {
-    let y = y.to_string();
-    if enabled {
-        run_json(&["window-rule", "premiere-home", "--y", &y])
-    } else {
-        run_json(&["window-rule", "premiere-home", "--off"])
-    }
-}
-
 /// Run `neutron --json --progress <args>` and stream its NDJSON events to `on_event`. Returns the
 /// terminal `result` object.
 fn run_stream(args: &[&str], on_event: impl FnMut(Value)) -> anyhow::Result<Value> {

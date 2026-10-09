@@ -129,13 +129,13 @@ export async function currentStepApp(appId, prefix) {
 }
 
 /** Read persisted settings (Preferences). Returns the full Settings object, incl.
- *  scale_mode/scale_value, home_window_*, and theme/custom_colors. */
+ *  scale_mode/scale_value, theme/custom_colors and button_icon_set. */
 export async function getSettings() {
   return await invoke("get_settings");
 }
 
 /** Persist settings from the Preferences tab. `settings` must be the full Settings
- *  object (scale_*, home_window_*, theme, custom_colors) — omitted fields reset to
+ *  object (scale_*, theme, custom_colors, button_icon_set) — omitted fields reset to
  *  their Rust defaults, so always send the whole thing. */
 export async function setSettings(settings) {
   return await invoke("set_settings", { settings });
@@ -184,12 +184,6 @@ export async function neutronSetup(update, onEvent) {
 /** `neutron uninstall`. Prefixes are deleted only when deletePrefixes is true. */
 export async function neutronUninstall(deletePrefixes) {
   return await invoke("neutron_uninstall", { deletePrefixes });
-}
-
-/** Compositor capability: { wayland, desktop, home_rule_supported }. Used to gate the
- *  Wayland home-window-position control in Preferences. */
-export async function compositorInfo() {
-  return await invoke("compositor_info");
 }
 
 // --- Mud Hut installer: app catalog + streaming install ------------------------
