@@ -96,6 +96,13 @@ Neutron is an independent project by Nico LaFoucate and Ficus Media Group. Adobe
 
 -----
 
+## Support Neutron
+
+Neutron was made for free, and every donation helps keep the project alive and in development.
+
+- [Patreon](https://patreon.com/neutronproject): monthly support
+- [Ko-fi](https://ko-fi.com/neutroncollider): one-time or monthly
+
 ## License
 
 Collider is licensed under the **Apache License, Version 2.0** (`Apache-2.0`). See [`LICENSE`](LICENSE) for the full text.
