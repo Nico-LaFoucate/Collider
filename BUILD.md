@@ -48,11 +48,18 @@ window opens, and changes to the Svelte files reload in place.
 ./release.sh
 ```
 
-`release.sh` builds a fresh clone of `HEAD` under `/var/tmp/collider-release` (set
-`COLLIDER_RELEASE_WORK` to use another directory), so commit your changes first. The result is
-`dist/Collider_<version>_amd64.AppImage` and `dist/SHA256SUMS`. The build fails if the AppImage
-contains your home directory's path anywhere. At the end it prints the commands that publish the
-release; `neutron setup` downloads that AppImage and checks it against `SHA256SUMS`.
+`release.sh` needs [Podman](https://podman.io/) (rootless is fine). It builds a fresh clone of
+`HEAD` inside an Ubuntu 24.04 container (`release.Containerfile`), so commit your changes first.
+The result is `dist/Collider_<version>_amd64.AppImage` and `dist/SHA256SUMS`. At the end it prints
+the commands that publish the release; `neutron setup` downloads that AppImage and checks it
+against `SHA256SUMS`.
+
+Why a container: an AppImage carries its own copies of WebKit, GLib and friends, and those need
+the glibc of the system they were built on. Built on Ubuntu 24.04 they need glibc 2.39 at most,
+the oldest Neutron supports. The build fails if any file in the AppImage needs a newer glibc, if
+it contains your home directory's path, or if it bundles the Wayland client libraries (they are
+left to the system, whose newer Mesa needs its own copy). `COLLIDER_RELEASE_NATIVE=1 ./release.sh`
+builds on your own system instead, for a quick local test; the glibc gate still applies.
 
 If the AppImage step fails:
 
