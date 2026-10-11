@@ -97,8 +97,17 @@ pub fn install_stream(
 
     let mut terminal: Option<Value> = None;
     let mut error_msg: Option<String> = None;
-    for line in BufReader::new(stdout).lines() {
-        let line = line.context("reading mudhut output")?;
+    let mut reader = BufReader::new(stdout);
+    let mut buf = Vec::new();
+    loop {
+        // Bytes, not `lines()`: a child's output can be non-UTF-8 (Wine's `reg` on a French
+        // system prints in code page 850), and `lines()` fails on it. That ended the read, closed
+        // the pipe, and Mud Hut died on its next write ("Broken pipe") mid-install. Neutron#11.
+        buf.clear();
+        if reader.read_until(b'\n', &mut buf).context("reading mudhut output")? == 0 {
+            break;
+        }
+        let line = String::from_utf8_lossy(&buf);
         let t = line.trim();
         if t.is_empty() {
             continue;
@@ -126,4 +135,41 @@ pub fn install_stream(
         return Err(anyhow!("mudhut install exited with code {}", status.code().unwrap_or(-1)));
     }
     terminal.ok_or_else(|| anyhow!("mudhut install finished without a result"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// A fake `mudhut` on PATH whose stdout carries the line Wine's `reg add` prints on a French
+    /// system (GitHub Neutron#11): Windows code page 850, not UTF-8. Collider must skip it like
+    /// any other non-JSON line and keep reading to the terminal `result`.
+    #[test]
+    fn install_stream_survives_non_utf8_child_output() {
+        let dir = std::env::temp_dir().join(format!("collider-fake-mudhut-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("mudhut");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\n\
+             echo '{\"event\":\"note\",\"message\":\"preparing the prefix\"}'\n\
+             printf 'reg\\377: L'\"'\"'op\\202ration s'\"'\"'est termin\\202e avec succ\\212s\\r\\n'\n\
+             echo '{\"event\":\"progress\",\"pct\":50}'\n\
+             echo '{\"event\":\"result\",\"apps\":[\"lightroom\"]}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = format!("{}:{}", dir.display(), std::env::var("PATH").unwrap_or_default());
+        std::env::set_var("PATH", path);
+
+        let mut seen = Vec::new();
+        let r = install_stream("lightroom", "iso", "/nonexistent", None, |v| {
+            seen.push(v["event"].as_str().unwrap_or("").to_string())
+        });
+        std::fs::remove_dir_all(&dir).ok();
+        let result = r.expect("install_stream must not fail on a non-UTF-8 line");
+        assert_eq!(result["event"], "result");
+        assert_eq!(seen, ["note", "progress", "result"]);
+    }
 }

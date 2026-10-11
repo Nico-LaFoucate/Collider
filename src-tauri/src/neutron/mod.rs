@@ -344,8 +344,17 @@ fn run_stream_with(bin: &str, args: &[&str], mut on_event: impl FnMut(Value)) ->
 
     let mut terminal: Option<Value> = None;
     let mut error_msg: Option<String> = None;
-    for line in BufReader::new(stdout).lines() {
-        let line = line.context("reading neutron output")?;
+    let mut reader = BufReader::new(stdout);
+    let mut buf = Vec::new();
+    loop {
+        // Bytes, not `lines()`: interleaved child output can be non-UTF-8 (Wine prints in the
+        // Windows code page of the user's language), and `lines()` fails on it -- ending the read
+        // and breaking the pipe under the child. Same fix as mudhut/mod.rs (Neutron#11).
+        buf.clear();
+        if reader.read_until(b'\n', &mut buf).context("reading neutron output")? == 0 {
+            break;
+        }
+        let line = String::from_utf8_lossy(&buf);
         let t = line.trim();
         if t.is_empty() {
             continue;
@@ -432,4 +441,37 @@ fn pid_from(v: &Value) -> anyhow::Result<u32> {
         .and_then(|p| p.as_u64())
         .map(|p| p as u32)
         .ok_or_else(|| anyhow!("neutron did not return a pid"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// A fake `neutron` whose stdout carries a line in Windows code page 850, as Wine prints it on
+    /// a French system (Neutron#11). The stream must skip it and still reach the `result`.
+    #[test]
+    fn run_stream_survives_non_utf8_child_output() {
+        let dir = std::env::temp_dir().join(format!("collider-fake-neutron-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("neutron");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\n\
+             echo '{\"event\":\"progress\",\"step\":\"wineboot\"}'\n\
+             printf 'reg\\377: le syst\\212me n'\"'\"'a pas pu trouver la valeur\\r\\n'\n\
+             echo '{\"event\":\"result\",\"ok\":true}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut seen = Vec::new();
+        let r = run_stream_with(fake.to_str().unwrap(), &["prefix", "provision"], |v| {
+            seen.push(v["event"].as_str().unwrap_or("").to_string())
+        });
+        std::fs::remove_dir_all(&dir).ok();
+        let result = r.expect("run_stream must not fail on a non-UTF-8 line");
+        assert_eq!(result["ok"], true);
+        assert_eq!(seen, ["progress", "result"]);
+    }
 }
