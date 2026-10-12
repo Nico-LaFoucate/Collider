@@ -121,11 +121,17 @@ prefix is still `bad` afterwards.
 ### `neutron display [--json]` (added 2026-10-05)
 The desktop's display scale, the only scale detector (KDE, GNOME, Sway, Hyprland, generic
 Wayland). Collider shows it in Preferences and passes `--scale` to `launch` only for a manual
-override.
+override. `collider_scale` (added 1.0.0-beta.7) is that manual override as the CLI reads it from
+`~/.config/collider/config.json` (`scale_mode: "manual"`, `scale_value`), or `null` for Auto.
+`scale`/`dpi`/`source` stay the desktop's own.
 ```json
 { "ok": true, "scale": 1.75, "output": "DP-1", "source": "kde", "dpi": 168,
-  "windows_step": true, "warning": null }
+  "windows_step": true, "warning": null, "collider_scale": null }
 ```
+`neutron launch` picks its scale in this order: `--scale`, then `collider_scale`, then the
+desktop's scale (1.0.0-beta.7; before that a launch without `--scale`, such as from the app menu
+or a desktop icon, ignored Collider's setting — GitHub Neutron#16). Its log line says which:
+`display: wayland | scale=1.0 (collider setting) LogPixels=96`.
 
 ### `neutron setup` / `neutron update` `[--json --progress]` (added 2026-10-05)
 Install / update everything: the CLI, neutron-wine, Microsoft's components, Mud Hut (and Adobe's
