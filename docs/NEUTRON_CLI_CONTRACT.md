@@ -152,7 +152,7 @@ writes `HKCU\Software\Neutron\Caption`. Collider owns the sets and passes a fold
 ### `neutron doctor [--prefix <path>] [--json]`
 Health check of what affects launching and running the apps: the runtime and its integrity,
 ntsync, and, with `--prefix`, the prefix, its runtime stamp and graphics driver, the Adobe apps
-in it, Microsoft components, WebView2, fonts, CEP flags and the Premiere display fix. Powers
+in it, Microsoft components, WebView2, fonts, CEP extension signatures and the Premiere display fix. Powers
 Collider's "is the prefix healthy" status surface.
 ```json
 {
@@ -171,6 +171,12 @@ Collider's "is the prefix healthy" status surface.
 `"pending": true` marks a step that hasn't happened yet (`ok` stays true).
 `"warning": true` marks a check that passes but needs the user's attention (ntsync not active, an
 untested WebView2 version). Collider shows it with a yellow dot and `detail` as the tooltip.
+`"third_party": true` (only on `cep-third-party`) marks damage to a third-party CEP extension's own
+install: signed files missing or changed, so CEP refuses it and its panel never opens. It comes
+with `"warning": true` and does not affect `healthy`; `extensions` lists each one as
+`{"id", "name", "missing", "changed", "edited_by_neutron"}`. Damage to Adobe's own extensions, or to
+a manifest an older Neutron edited, is reported on `cep-signatures` instead (red unless
+PlayerDebugMode is on). `cep-cef-flags` was removed in CLI 1.0.0-beta.6.
 
 ---
 
