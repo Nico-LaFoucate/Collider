@@ -10,7 +10,8 @@
 
   // Adobe-style 2-letter badge; fall back to the first two name letters.
   const BADGES = { premiere: "Pr", photoshop: "Ps", lightroom: "Lr", lightroomcc: "Lr",
-                   animate: "An", mediaencoder: "Me", aftereffects: "Ae", illustrator: "Ai" };
+                   animate: "An", mediaencoder: "Me", aftereffects: "Ae", illustrator: "Ai",
+                   audition: "Au", indesign: "Id" };
   const badge = $derived(BADGES[app.id] ?? app.name.slice(0, 2));
 
   // "#rrggbb" -> "r, g, b" for the rgba() tints in the scoped CSS.

@@ -85,7 +85,7 @@ key/current/default). Idempotent. Exit `3` if Premiere is running.
 ### `neutron launch <app> --prefix <path> [--json] [--gpu|--software]`
 Launch an app through the Neutron stack with correct env + DLL overrides. `<app>` is any
 profile `neutron launch --help` lists (premiere, photoshop, lightroom, lightroomcc, animate,
-mediaencoder, aftereffects, illustrator). Returns the spawned PID so Collider can supervise
+mediaencoder, aftereffects, illustrator, audition, indesign). Returns the spawned PID so Collider can supervise
 it. (Historical: the first version launched Premiere only.)
 ```json
 { "ok": true, "launched": true, "app": "premiere", "pid": 48213, "gpu_mode": "gpu",
