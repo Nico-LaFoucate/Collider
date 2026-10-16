@@ -184,6 +184,14 @@ with `"warning": true` and does not affect `healthy`; `extensions` lists each on
 a manifest an older Neutron edited, is reported on `cep-signatures` instead (red unless
 PlayerDebugMode is on). `cep-cef-flags` was removed in CLI 1.0.0-beta.6.
 
+GPU checks (CLI after 1.0.0-beta.12; all `ok: true`, at most `"warning": true`, so they never change `healthy`):
+`gpu` on every machine (each GPU's vendor, name, kernel driver, AMD gfx target and Vulkan driver; the JSON also
+carries a `gpus` list). On machines with an AMD GPU and no NVIDIA GPU: `amd-rocm-opencl` (AMD's ROCm OpenCL, which
+Premiere, After Effects and Media Encoder need for GPU acceleration; Mesa's Rusticl is rejected by those apps),
+`opencl-loader` (`libOpenCL.so.1`), and with `--prefix` `amd-gfx-override` (whether an RDNA2 card ROCm doesn't list
+has `HSA_OVERRIDE_GFX_VERSION=10.3.0` in the environment or `<prefix>/neutron-env.conf`). Each warning's `detail`
+says what to install or add.
+
 ---
 
 ## Historical: the hwmux daemon — ownership (RESOLVED → Option A)
