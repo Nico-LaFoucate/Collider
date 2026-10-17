@@ -11,7 +11,7 @@
            runUpdate, runYearlyInstall, targetLabels, anyJob, ukey } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
            cardView, joinNames, installedLabel, targetLabel, upToSize, prefixError,
-           SPEECH_LABEL } from "$lib/updates-logic.js";
+           SPEECH_APPS, SPEECH_LABEL, SPEECH_HELP } from "$lib/updates-logic.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
@@ -214,12 +214,13 @@
     }
   }
 
-  // Premiere Pro's speech-to-text languages (about 13.8 GB) are a choice, off by default as in
-  // Creative Cloud (DECISIONS C70), so a Premiere download stops at a confirm step first.
+  // The speech-to-text languages (Premiere Pro and Media Encoder, about 14.5 GB) are a choice,
+  // off by default as in Creative Cloud (DECISIONS C70), so those downloads stop at a confirm
+  // step first.
   let mhConfirm = $state(null);      // the catalog app awaiting that choice
   let mhSpeech = $state(false);
   function pickInstall(app) {
-    if (mhMethod === "download" && app.id === "premiere") { mhConfirm = app; mhSpeech = false; }
+    if (mhMethod === "download" && SPEECH_APPS.includes(app.id)) { mhConfirm = app; mhSpeech = false; }
     else startInstall(app);
   }
 
@@ -1217,8 +1218,7 @@
               <label class="speech-opt">
                 <input type="checkbox" bind:checked={mhSpeech} />
                 <span>{SPEECH_LABEL}
-                  <span class="speech-help">Premiere Pro uses these to make captions from speech.
-                    Creative Cloud doesn't install them by default either.</span>
+                  <span class="speech-help">{SPEECH_HELP}</span>
                 </span>
               </label>
               <button class="primary" onclick={() => startInstall(mhConfirm, { speechPacks: mhSpeech })}>Install</button>

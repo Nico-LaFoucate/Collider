@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import {
   ukey, upToSize, joinNames, majorOf, updateAllPlan, cardView, prefixSummary, readyCount,
   dialogModel, dialogAction, outcomeFromAppResult, outcomeFromTerminal, outcomeFromLastUpdate,
-  outcomeFromInstall, outcomeNote, SPEECH_LABEL,
+  outcomeFromInstall, outcomeNote, SPEECH_LABEL, SPEECH_HELP,
 } from "./updates-logic.js";
 import { readFileSync } from "node:fs";
 
@@ -222,19 +222,27 @@ test("dialog: a build Neutron has not verified", () => {
   assert.match(p.lines[2], /up to 900 MB/);
 });
 
-test("dialog: a yearly version, with remove-previous and (Premiere only) speech packs", () => {
+test("dialog: a yearly version, with remove-previous and (Premiere Pro, Media Encoder) speech packs", () => {
   const m = dialogModel({ kind: "yearly", row: premiere() }, { prefixName: "Adobe 2026" });
   assert.equal(m.title, "Install Premiere Pro 2027?");
   assert.equal(m.lines[1], "It installs next to Premiere Pro 2026, which stays as it is unless you choose to remove it.");
   assert.ok(m.lines.includes("Neutron hasn't verified Premiere Pro 2027 yet. It might not open, or parts of it might not work."));
   assert.deepEqual(m.options.map((o) => [o.key, o.value]), [["removePrevious", false], ["speechPacks", false]]);
   assert.equal(m.options[1].label, SPEECH_LABEL);
+  assert.equal(SPEECH_LABEL, "Speech-to-text languages (about 14.5 GB)", "Mud Hut measured 14.49 GB per app");
+  const me = { ...upToDate(), id: "mediaencoder", name: "Media Encoder",
+               new_major: { year: 2027, to: "27.0.0.12", label: "2027", major: 27, verified: true } };
+  const mm = dialogModel({ kind: "yearly", row: me }, { prefixName: "Adobe 2026" });
+  const sp = mm.options.find((o) => o.key === "speechPacks");
+  assert.deepEqual([sp.label, sp.help, sp.value], [SPEECH_LABEL, SPEECH_HELP, false], "Media Encoder: same wording, off");
+  assert.ok(!SPEECH_HELP.includes("Premiere"), "one wording for both apps");
+  assert.equal(dialogAction({ kind: "yearly", row: me }, { speechPacks: true }).speechPacks, true);
   assert.equal(m.confirm, "Install 2027");
   const lr = { ...upToDate(), id: "lightroom", name: "Lightroom Classic",
                new_major: { year: 2027, to: "16.0.0.1", label: "2027", verified: true, side_by_side: false } };
   const l = dialogModel({ kind: "yearly", row: lr }, { prefixName: "Adobe 2026" });
   assert.equal(l.lines[1], "It replaces Lightroom Classic 2026.");
-  assert.equal(l.options.length, 0, "no remove-previous when it replaces, no speech packs outside Premiere");
+  assert.equal(l.options.length, 0, "no remove-previous when it replaces, no speech packs outside Premiere Pro and Media Encoder");
 });
 
 test("dialog actions: what runs on confirm", () => {

@@ -337,9 +337,13 @@ function snapshotLine(snapshot) {
 // Mud Hut flags a Windows copy that Adobe's installer has no record of (`update.adopt`); it
 // registers the copy first, so the run takes longer than a plain update.
 const ADOPT_LINE = "This copy came from Windows, so Mud Hut first registers it with Adobe's installer, then updates it.";
-const SPEECH_HELP = "Premiere Pro uses these to make captions from speech. Creative Cloud doesn't " +
-                    "install them by default either.";
-export const SPEECH_LABEL = "Speech-to-text languages (about 13.8 GB)";
+// Speech-to-text language packs: optional, off by default, as in Creative Cloud (DECISIONS C70).
+// Premiere Pro and Media Encoder ship the same 16 packs and Mud Hut's --speech-packs applies to
+// both; Mud Hut measured 14.49 GB per app (Premiere Pro 26.5.2: 3.88 GB without, 18.36 GB with).
+// One wording for both apps, so the help line names neither.
+export const SPEECH_APPS = ["premiere", "mediaencoder"];
+export const SPEECH_LABEL = "Speech-to-text languages (about 14.5 GB)";
+export const SPEECH_HELP = "They turn speech into text for captions. Creative Cloud doesn't install them by default either.";
 
 /**
  * The text of the one update dialog, for each request:
@@ -423,7 +427,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
       m.lines.push(`Neutron hasn't verified ${name} ${year} yet. It might not open, or parts of it might not work.`);
     }
     m.lines.push(`Keep every Adobe app in “${prefixName}” closed until it finishes.`);
-    if (row.id === "premiere") {
+    if (SPEECH_APPS.includes(row.id)) {
       m.options.push({ key: "speechPacks", label: SPEECH_LABEL, help: SPEECH_HELP, value: false });
     }
     m.confirm = `Install ${year}`;
