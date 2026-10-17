@@ -10,7 +10,7 @@
   import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
            runUpdate, runYearlyInstall, targetLabels, anyJob, ukey } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
-           cardView, joinNames, installedLabel, targetLabel, aboutSize, prefixError,
+           cardView, joinNames, installedLabel, targetLabel, upToSize, prefixError,
            SPEECH_LABEL } from "$lib/updates-logic.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -486,8 +486,9 @@
     udReq = null;
     if (!req || !a) return;
     if (a.op === "install") {
-      runYearlyInstall({ prefix: req.prefix, app: a.app, version: a.version, label: a.label,
-                         removePrevious: a.removePrevious, speechPacks: a.speechPacks });
+      runYearlyInstall({ prefix: req.prefix, app: a.app, name: req.row.name, version: a.version, label: a.label,
+                         allowUnverified: a.allowUnverified, removePrevious: a.removePrevious,
+                         speechPacks: a.speechPacks });
       return;
     }
     const rows = req.kind === "all" ? req.rows
@@ -530,7 +531,7 @@
   function rowStatus(row) {
     const u = row.update;
     if (u && u.verified === true) {
-      const size = aboutSize(u.download_bytes);
+      const size = upToSize(u.download_bytes);   // an upper bound (see upToSize)
       return `Update to ${targetLabel(u)}${size ? ` · ${size}` : ""}`;
     }
     if (u) return `${targetLabel(u)} is available · not yet verified by Neutron`;
@@ -1122,7 +1123,9 @@
                                                outcome: upd.outcomes[ukey(p.path, row.id)], neutronBusy })}
                       <div class="updv-row">
                         <div class="updv-main">
-                          <div class="updv-name">{row.name} <span class="updv-ver">{installedLabel(row)}</span></div>
+                          <div class="updv-name">{row.name} <span class="updv-ver">{installedLabel(row)}</span>
+                            {#if cv.outcomePill}<span class="updv-pill {cv.outcomePill.cls}">{cv.outcomePill.text}</span>{/if}
+                          </div>
                           {#if cv.progress}
                             <div class="prov">
                               <div class="prov-bar"><div class="prov-fill" style="width: {cv.progress.pct ?? 100}%"></div></div>
@@ -1791,6 +1794,11 @@
   .updv-name { font-size: 12.5px; font-weight: 600; }
   .updv-ver { font-weight: 400; color: rgba(255,255,255,0.4); margin-left: 4px; font-size: 11.5px; }
   .updv-status { font-size: 11.5px; color: rgba(255,255,255,0.65); margin-top: 2px; }
+  .updv-pill { font-size: 10px; font-weight: 400; padding: 2px 7px; margin-left: 6px; border-radius: 20px;
+               background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.5); border: 1px solid rgba(255,255,255,0.08); }
+  .updv-pill.ok { background: rgba(60,200,140,0.12); color: #6fe3b0; border-color: rgba(60,200,140,0.25); }
+  .updv-pill.warn { background: rgba(239,159,39,0.12); color: #f2c374; border-color: rgba(239,159,39,0.25); }
+  .updv-pill.bad { background: rgba(226,75,74,0.12); color: #ff9b9b; border-color: rgba(226,75,74,0.25); }
   .updv-status.muted { color: rgba(255,255,255,0.4); }
   .updv-note { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 3px; line-height: 1.45; }
   .updv-note.warn { color: #f2c374; }

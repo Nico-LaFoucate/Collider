@@ -198,13 +198,15 @@ export async function mudhutApps(source = null) {
  *  event live: { event:"progress", stage, pct, msg } / { event:"note", msg } /
  *  the terminal { event:"result", ... }. Resolves with the terminal result (with `exit` when Mud
  *  Hut exited non-zero after it; `ok:false` is then a failure in Mud Hut's words), or rejects with
- *  the error message. `version` picks a yearly version (`--version MAJOR`), `speechPacks` adds
- *  Premiere Pro's speech-to-text languages, `removePrevious` removes the previous yearly version. */
-export async function installApp({ app, method, prefix, source = null, version = null,
+ *  the error message. `version` picks a yearly version (`--version MAJOR`), `allowUnverified`
+ *  follows the user's confirmation of one Neutron has not verified, `speechPacks` adds Premiere
+ *  Pro's speech-to-text languages, `removePrevious` removes the previous yearly version (the
+ *  result's `removed_previous` says what happened to each). */
+export async function installApp({ app, method, prefix, source = null, version = null, allowUnverified = false,
                                    speechPacks = false, removePrevious = false, onEvent }) {
   const channel = new Channel();
   channel.onmessage = (ev) => onEvent?.(ev);
-  return await invoke("install_app", { app, method, prefix, source, version, speechPacks,
+  return await invoke("install_app", { app, method, prefix, source, version, allowUnverified, speechPacks,
                                        removePrevious, onEvent: channel });
 }
 

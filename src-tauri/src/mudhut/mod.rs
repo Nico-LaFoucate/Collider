@@ -289,6 +289,10 @@ pub fn install_stream(
 pub struct InstallOpts {
     /// `--version MAJOR`: a specific yearly version (e.g. the 2027 apps) instead of the newest.
     pub version: Option<String>,
+    /// `--allow-unverified` (with `--version`): the user confirmed a yearly version Neutron has
+    /// not verified. Without it Mud Hut installs the newest VERIFIED build of that version and
+    /// refuses (`code: "unverified"`) when there is none; with it, a verified build still wins.
+    pub allow_unverified: bool,
     /// `--speech-packs`: also install Premiere Pro's speech-to-text languages (about 13.8 GB).
     /// Off unless the user asks, as in Creative Cloud (DECISIONS C70).
     pub speech_packs: bool,
@@ -317,6 +321,9 @@ fn install_stream_with(
     if let Some(v) = &opts.version {
         args.push("--version".into());
         args.push(v.clone());
+    }
+    if opts.allow_unverified {
+        args.push("--allow-unverified".into());
     }
     if opts.speech_packs {
         args.push("--speech-packs".into());
@@ -826,13 +833,63 @@ pub(crate) mod tests {
     #[test]
     fn install_argv_with_yearly_and_speech_options() {
         let f = fake_output("{\"event\":\"result\",\"ok\":true}\n", "", 0);
-        let o = InstallOpts { version: Some("27".into()), speech_packs: true, remove_previous: true };
+        let o = InstallOpts { version: Some("27".into()), allow_unverified: true, speech_packs: true, remove_previous: true };
         install_stream_with(&f.bin, "premiere", "download", "/p", None, &o, &mut |_| {}).unwrap();
         assert_eq!(argv(&f), ["--json", "install", "premiere", "--method", "download", "--prefix", "/p",
-                              "--version", "27", "--speech-packs", "--remove-previous"]);
+                              "--version", "27", "--allow-unverified", "--speech-packs", "--remove-previous"]);
         install_stream_with(&f.bin, "premiere", "download", "/p", None, &InstallOpts::default(), &mut |_| {}).unwrap();
         assert_eq!(argv(&f), ["--json", "install", "premiere", "--method", "download", "--prefix", "/p"],
                    "speech packs are off unless asked for");
+    }
+
+    /// What the finished Mud Hut (build 3c6e464) printed for `check-updates --offline` on two lab
+    /// copies and a bad path (lab paths shortened to /lab), shared with the page's tests.
+    const REAL_CHECK: &str = include_str!("../../../src/lib/fixtures/check-updates-mudhut-3c6e464.json");
+
+    #[test]
+    fn check_passes_the_real_mudhut_output_through() {
+        let one_line: Value = serde_json::from_str(REAL_CHECK).unwrap();
+        let f = fake_output(&format!("{one_line}\n"), "", 0);
+        let ps: Vec<String> = ["/lab/cr/AE2026", "/lab/cr/LrcRelease", "/nonexistent/x"].map(String::from).to_vec();
+        let v = check_updates_with(&f.bin, &ps, &opts(None, false, true)).unwrap();
+        assert_eq!(v["supported"], true);
+        assert_eq!(v["feed"]["fetched_at"], "2026-10-17T02:15:08Z");
+        let prem = &v["prefixes"][0]["apps"][1];
+        assert_eq!(prem["id"], "premiere");
+        assert_eq!(prem["update"]["download_bytes"], 3955197627u64);
+        assert_eq!(prem["update"]["changed_bytes"], 3188608272u64);
+        assert_eq!(v["prefixes"][1]["apps"][0]["new_major"]["major"], 26);
+        assert_eq!(v["prefixes"][2]["ok"], false);
+        assert_eq!(v["prefixes"][2]["error"], "This is not a prefix (it has no drive_c folder).");
+    }
+
+    /// Collider's exact yearly-install argv against the REAL Mud Hut, with `--dry-run` appended
+    /// by the wrapper, so nothing is downloaded or installed (the download path resolves the build
+    /// from Adobe's feed, then returns before the lock, the busy check, staging and the installer).
+    /// Run in the lab only:
+    ///   COLLIDER_REAL_MUDHUT_WRAPPER=<script that sources the lab env and runs
+    ///   `exec "$MUDHUT" "$@" --dry-run`> cargo test -- --ignored real_mudhut
+    #[test]
+    #[ignore]
+    fn real_mudhut_takes_the_yearly_install_argv() {
+        let bin = std::env::var("COLLIDER_REAL_MUDHUT_WRAPPER").expect("COLLIDER_REAL_MUDHUT_WRAPPER");
+        let prefix = std::env::temp_dir().join("collider-real-mudhut-dry-run-prefix");
+        let prefix = prefix.to_string_lossy();
+        // Audition 25 is not verified (DRAFT list): with the user's confirmation it resolves.
+        let o = InstallOpts { version: Some("25".into()), allow_unverified: true, speech_packs: false, remove_previous: true };
+        let mut seen = Vec::new();
+        let r = install_stream_with(&bin, "audition", "download", &prefix, None, &o, &mut |v| seen.push(v))
+            .expect("the real Mud Hut must accept Collider's argv");
+        println!("result: {r}");
+        assert_eq!(r["ok"], true);
+        assert_eq!(r["dry_run"], true);
+        assert!(r["product_version"].as_str().unwrap().starts_with("25."), "{r}");
+        assert!(!std::path::Path::new(prefix.as_ref()).exists(), "a dry run must not create the prefix");
+        // Without the confirmation Mud Hut refuses, and Collider reports its sentence.
+        let o = InstallOpts { allow_unverified: false, ..o };
+        let e = install_stream_with(&bin, "audition", "download", &prefix, None, &o, &mut |_| {}).unwrap_err();
+        println!("without --allow-unverified: {e}");
+        assert!(e.to_string().contains("hasn't verified"), "{e}");
     }
 
     #[test]

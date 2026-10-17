@@ -449,9 +449,10 @@ pub async fn check_adobe_updates(
 /// with the terminal `result` object (with `exit` added if Mud Hut exited non-zero after it), or
 /// rejects with the error message.
 ///
-/// `version` installs a specific yearly version (`--version MAJOR`), `speech_packs` adds Premiere
+/// `version` installs a specific yearly version (`--version MAJOR`), `allow_unverified` follows the
+/// user's confirmation of a yearly version Neutron has not verified, `speech_packs` adds Premiere
 /// Pro's speech-to-text languages, `remove_previous` removes the previous yearly version after the
-/// new one installs. All three are the user's choices in the dialog; absent means off.
+/// new one installs. All are the user's choices in the dialog; absent means off.
 // One argument per field the page sends: a Tauri command's parameters ARE its IPC shape.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
@@ -461,12 +462,14 @@ pub async fn install_app(
     prefix: String,
     source: Option<String>,
     version: Option<String>,
+    allow_unverified: Option<bool>,
     speech_packs: Option<bool>,
     remove_previous: Option<bool>,
     on_event: tauri::ipc::Channel<Value>,
 ) -> Result<Value, String> {
     let opts = crate::mudhut::InstallOpts {
         version,
+        allow_unverified: allow_unverified.unwrap_or(false),
         speech_packs: speech_packs.unwrap_or(false),
         remove_previous: remove_previous.unwrap_or(false),
     };

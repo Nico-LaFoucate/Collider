@@ -4,10 +4,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ukey, aboutSize, joinNames, majorOf, updateAllPlan, cardView, prefixSummary, readyCount,
+  ukey, upToSize, joinNames, majorOf, updateAllPlan, cardView, prefixSummary, readyCount,
   dialogModel, dialogAction, outcomeFromAppResult, outcomeFromTerminal, outcomeFromLastUpdate,
-  outcomeNote, SPEECH_LABEL,
+  outcomeFromInstall, outcomeNote, SPEECH_LABEL,
 } from "./updates-logic.js";
+import { readFileSync } from "node:fs";
+
+// `mudhut --json check-updates --offline` as the finished Mud Hut (build 3c6e464) printed it for
+// two lab copies and a bad path (lab paths shortened to /lab).
+const REAL = JSON.parse(readFileSync(new URL("./fixtures/check-updates-mudhut-3c6e464.json", import.meta.url), "utf8"));
 
 // The contract's Premiere row (verified point update, a newer unverified build, a new yearly version).
 const premiere = () => ({
@@ -41,10 +46,13 @@ test("keys are per prefix, never the app id alone", () => {
 });
 
 test("sizes and names read plainly", () => {
-  assert.equal(aboutSize(187000000), "about 187 MB");
-  assert.equal(aboutSize(3100000000), "about 3.1 GB");
-  assert.equal(aboutSize(2000000000), "about 2 GB");
-  assert.equal(aboutSize(null), null);
+  // An upper bound, rounded UP so it never understates.
+  assert.equal(upToSize(187000000), "up to 187 MB");
+  assert.equal(upToSize(186100001), "up to 187 MB");
+  assert.equal(upToSize(3100000000), "up to 3.1 GB");
+  assert.equal(upToSize(3840000000), "up to 3.9 GB", "3.84 GB must not read as 3.8");
+  assert.equal(upToSize(2000000000), "up to 2 GB");
+  assert.equal(upToSize(null), null);
   assert.equal(joinNames(["Premiere Pro"]), "Premiere Pro");
   assert.equal(joinNames(["Premiere Pro", "After Effects"]), "Premiere Pro and After Effects");
   assert.equal(joinNames(["A", "B", "C"]), "A, B and C");
@@ -135,6 +143,9 @@ test("card: outcomes (rolled back, unchanged, incomplete, refused, updated)", ()
   const ok = cardView({ row: upToDate(), pstate: pstate([upToDate()]),
                         outcome: { state: "updated", toLabel: "30.1" } });
   assert.equal(ok.pills[0].text, "Updated to 30.1");
+  assert.deepEqual(ok.outcomePill, { text: "Updated to 30.1", cls: "ok" }, "the outcome on its own, for the Updates view");
+  const yr = cardView({ row: premiere(), pstate: p, outcome: { state: "installed", label: "Premiere Pro 2027", message: null } });
+  assert.equal(yr.outcomePill.text, "Premiere Pro 2027 installed");
   assert.equal(ok.button, null);
 });
 
@@ -167,7 +178,7 @@ test("dialog: one verified update", () => {
   const m = dialogModel({ kind: "update", row: premiere(), related: [aftereffects()] },
                         { prefixName: "Adobe 2026", snapshot: true });
   assert.equal(m.title, "Update Premiere Pro?");
-  assert.equal(m.lines[0], "Premiere Pro 26.3.0.12 → 26.5.2, downloaded from Adobe (about 187 MB).");
+  assert.equal(m.lines[0], "Premiere Pro 26.3.0.12 → 26.5.2, downloaded from Adobe (up to 187 MB).");
   assert.equal(m.lines[1], "Keep every Adobe app in “Adobe 2026” closed until it finishes.");
   assert.equal(m.lines[2], "A backup copy is kept first and put back if the update fails.");
   assert.equal(m.options[0].label, "Also update After Effects (26.3.0.5 → 26.5)");
@@ -192,7 +203,7 @@ test("dialog: update all lists what it covers and what it leaves out", () => {
   const m = dialogModel({ kind: "all", rows: plan.include, excluded: plan.exclude }, { prefixName: "Adobe 2026" });
   assert.equal(m.title, "Update 2 apps in “Adobe 2026”?");
   assert.deepEqual(m.items, ["Premiere Pro 26.3.0.12 → 26.5.2", "After Effects 26.3.0.5 → 26.5"]);
-  assert.equal(m.lines[0], "They update one after another, about 2.6 GB to download in total.");
+  assert.equal(m.lines[0], "They update one after another, up to 2.6 GB to download in total.");
   assert.equal(m.lines[1], "Keep every Adobe app in “Adobe 2026” closed until all of them finish.");
   assert.equal(m.lines[3], "Not included: Photoshop 27.1, which Neutron hasn't verified yet. You can update it on its own.");
   assert.equal(m.confirm, "Update all");
@@ -208,7 +219,7 @@ test("dialog: a build Neutron has not verified", () => {
   const ps = photoshopUnverified();
   const p = dialogModel({ kind: "unverified", row: ps, target: ps.update }, { prefixName: "Adobe 2026" });
   assert.equal(p.lines[1], "Once Neutron has verified it, it shows here as a normal update.");
-  assert.match(p.lines[2], /about 900 MB/);
+  assert.match(p.lines[2], /up to 900 MB/);
 });
 
 test("dialog: a yearly version, with remove-previous and (Premiere only) speech packs", () => {
@@ -237,11 +248,13 @@ test("dialog actions: what runs on confirm", () => {
   assert.deepEqual(dialogAction({ kind: "all", rows: [row, aftereffects()] }),
                    { op: "update", apps: ["premiere", "aftereffects"], to: null, allowUnverified: false });
   assert.deepEqual(dialogAction({ kind: "yearly", row }, { removePrevious: true }),
-                   { op: "install", app: "premiere", version: "27", label: "Premiere Pro 2027",
+                   { op: "install", app: "premiere", version: "27", label: "Premiere Pro 2027", allowUnverified: true,
                      removePrevious: true, speechPacks: false });
   // Mud Hut's own `major` wins (Photoshop 2027 is major 28, never the year).
   const ps = { ...photoshopUnverified(), new_major: { year: 2027, to: "28.0.0.50", label: "2027", major: 28, verified: true } };
   assert.equal(dialogAction({ kind: "yearly", row: ps }).version, "28");
+  assert.equal(dialogAction({ kind: "yearly", row: ps }).allowUnverified, false,
+               "a verified yearly version needs no --allow-unverified");
 });
 
 test("outcomes from Mud Hut's update events", () => {
@@ -255,4 +268,47 @@ test("outcomes from Mud Hut's update events", () => {
   assert.equal(outcomeFromLastUpdate({ ok: true }), null);
   assert.equal(outcomeNote({ state: "failed", message: "Not enough disk space.", prefixChanged: false }, "Photoshop"),
                "Not enough disk space. Nothing was changed.");
+});
+
+test("yearly install outcome: removed_previous, as Mud Hut reports it", () => {
+  const ok = outcomeFromInstall({ event: "result", ok: true, version: "27.0.0.40",
+                                  removed_previous: [{ version: "26.3.0.12", removed: true }] },
+                                { label: "Premiere Pro 2027", name: "Premiere Pro" });
+  assert.deepEqual(ok, { state: "installed", label: "Premiere Pro 2027", message: "Removed Premiere Pro 26.3.0.12.", warn: false });
+  const kept = outcomeFromInstall({ event: "result", ok: true, removed_previous: [{ version: "25.3.0.084", removed: false,
+    dir: "C:/x", message: "This older version was copied without Adobe's records, so Adobe's uninstaller cannot remove it. It was left in place." }] },
+    { label: "Premiere Pro 2026", name: "Premiere Pro" });
+  assert.equal(kept.state, "installed", "a version left in place is not a failed install");
+  assert.equal(kept.warn, true);
+  assert.equal(kept.message, "Premiere Pro 25.3.0.084 was not removed. This older version was copied without Adobe's records, so Adobe's uninstaller cannot remove it. It was left in place.");
+  assert.equal(outcomeFromInstall({ event: "result", ok: true }, { label: "X", name: "X" }).message, null);
+  assert.equal(outcomeFromInstall({ event: "result", ok: false, message: "m" }, { label: "X", name: "X" }).state, "failed");
+  const card = cardView({ row: upToDate(), pstate: pstate([upToDate()]), outcome: kept });
+  assert.equal(card.noteCls, "warn");
+});
+
+test("the real Mud Hut output (3c6e464) renders: sizes are upper bounds, never changed_bytes", () => {
+  const [ae, lrc, bad] = REAL.prefixes;
+  const prem = ae.apps.find((a) => a.id === "premiere");
+  assert.equal(prem.update.verified, false);
+  const card = cardView({ row: prem, pstate: ae });
+  assert.equal(card.pills[0].text, "26.5.2 available · not yet verified");
+  const unv = dialogModel({ kind: "unverified", row: prem, target: prem.update }, { prefixName: "AE2026" });
+  assert.ok(unv.lines.includes("Premiere Pro 26.3 → 26.5.2, downloaded from Adobe (up to 4 GB)."), unv.lines.join("|"));
+  const lr = ae.apps.find((a) => a.id === "lightroom");
+  const one = dialogModel({ kind: "update", row: lr }, { prefixName: "AE2026" });
+  assert.equal(one.lines[0], "Lightroom Classic 15.4.1 → 15.6, downloaded from Adobe (up to 3.1 GB).");
+  // changed_bytes is never shown as a size: premiere's 3.19 GB would read "3.2 GB".
+  assert.ok(!JSON.stringify([unv, one]).includes("3.2 GB"));
+  assert.deepEqual(updateAllPlan(ae.apps).include.map((r) => r.id), ["lightroom"]);
+  assert.equal(prefixSummary({ pstate: ae }).text, "Lightroom Classic 15.6 is available");
+  assert.equal(outcomeFromLastUpdate(ae.last_update), null, "a successful last_update is not an outcome to show");
+  // The copy without Adobe's records: adopt, and a new yearly version with Mud Hut's major.
+  const lp = lrc.apps.find((a) => a.id === "premiere");
+  assert.equal(lp.update.adopt, true);
+  assert.ok(dialogModel({ kind: "update", row: lp }, { prefixName: "LrcRelease" }).lines.some((l) => l.includes("registers it")));
+  assert.deepEqual(dialogAction({ kind: "yearly", row: lp }, {}),
+                   { op: "install", app: "premiere", version: "26", label: "Premiere Pro 2026", allowUnverified: true,
+                     removePrevious: false, speechPacks: false });
+  assert.equal(prefixSummary({ pstate: bad }).text, "This is not a prefix (it has no drive_c folder).");
 });

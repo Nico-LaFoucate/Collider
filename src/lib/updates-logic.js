@@ -8,14 +8,23 @@
 /** Store key for one app in one prefix. Never the app id alone: two prefixes can hold the same app. */
 export const ukey = (prefix, id) => `${prefix}\u0000${id}`;
 
-/** "about 187 MB", "about 3.1 GB"; null when Mud Hut gave no size. Decimal units, as Adobe and
- *  file managers show them. */
-export function aboutSize(bytes) {
+/**
+ * "up to 3.9 GB", "up to 187 MB"; null when Mud Hut gave no size. Decimal units, as Adobe and file
+ * managers show them.
+ *
+ * For `update.download_bytes`, which is an UPPER BOUND: the whole build plus every dependency it
+ * names, because Adobe's installer needs every package of the build in place (unchanged ones too).
+ * Packages already on disk are reused, so the real download can be smaller, never larger. Rounded
+ * UP so the figure never understates. `changed_bytes` (only what changed) is NOT a download size
+ * and is never shown as one.
+ */
+export function upToSize(bytes) {
   if (typeof bytes !== "number" || !(bytes > 0)) return null;
-  if (bytes >= 1e9) return `about ${(bytes / 1e9).toFixed(1).replace(/\.0$/, "")} GB`;
-  if (bytes >= 1e6) return `about ${Math.round(bytes / 1e6)} MB`;
-  return "less than 1 MB";
+  if (bytes > 1e9) return `up to ${trim(Math.ceil(bytes / 1e8) / 10)} GB`;
+  if (bytes > 1e6) return `up to ${Math.ceil(bytes / 1e6)} MB`;
+  return "up to 1 MB";
 }
+const trim = (n) => String(n).replace(/\.0$/, "");
 
 /** "A", "A and B", "A, B and C". */
 export function joinNames(names) {
@@ -125,6 +134,25 @@ export function outcomeFromTerminal(r) {
   return { state, message: r?.message ?? null, log: r?.log ?? null };
 }
 
+/**
+ * The outcome of a yearly install from Mud Hut's terminal result. `removed_previous` lists each
+ * older version it was asked to remove: `{version, removed: true}`, or `{version, removed: false,
+ * message}` when Adobe's uninstaller failed or the older version was copied without Adobe's records
+ * (then it is left in place). A version that stayed is reported; it is not a failed install.
+ */
+export function outcomeFromInstall(r, { label, name }) {
+  if (r?.ok === false) return { state: "failed", message: r.message ?? r.reason ?? `${label} didn't install.` };
+  const parts = [];
+  let warn = false;
+  for (const p of Array.isArray(r?.removed_previous) ? r.removed_previous : []) {
+    const v = p?.version ? `${name} ${p.version}` : `The previous ${name}`;
+    if (p?.removed === true) parts.push(`Removed ${v}.`);
+    else { warn = true; parts.push(`${v} was not removed.${p?.message ? ` ${p.message}` : ""}`); }
+  }
+  if (r?.exit && (r.message ?? r.reason)) { warn = true; parts.push(r.message ?? r.reason); }
+  return { state: "installed", label, message: parts.length ? parts.join(" ") : null, warn };
+}
+
 /** An update this Collider did not watch, from Mud Hut's `last_update`. Only a failure is kept: a
  *  success already shows as the new installed version. */
 export function outcomeFromLastUpdate(lu) {
@@ -179,10 +207,10 @@ export function outcomePill(o) {
  *   outcome     how this Collider's last run for the app ended, if any
  *   appRunning  this card's app is running (the card's own, always fresh)
  *   neutronBusy a Neutron update is running
- * Returns { pills, progress, button, launchLock, note, noteCls, log }.
+ * Returns { pills, outcomePill, progress, button, launchLock, note, noteCls, log }.
  */
 export function cardView({ row, id, name, pstate, job, outcome, appRunning = false, neutronBusy = false }) {
-  const view = { pills: [], progress: null, button: null, launchLock: null, note: null, noteCls: "", log: null };
+  const view = { pills: [], outcomePill: null, progress: null, button: null, launchLock: null, note: null, noteCls: "", log: null };
   if (!row && !job && !pstate?.update_in_progress && !outcome) return view;
   const appName = row?.name ?? name;
   const act = activeUpdate(job, pstate);
@@ -205,9 +233,10 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
   const o = outcome ?? outcomeFromLastUpdate(listed([pstate?.last_update?.app], row) ? pstate.last_update : null);
   const op = outcomePill(o);
   if (op) view.pills.push(op);
+  view.outcomePill = op;   // on its own too, for views that list the update itself in words
   if (o) {
     view.note = outcomeNote(o, appName, installedLabel(row) || o.from);
-    view.noteCls = o.state === "incomplete" ? "bad" : isFailure(o) || o.state === "refused" ? "warn" : "";
+    view.noteCls = o.state === "incomplete" ? "bad" : isFailure(o) || o.state === "refused" || o.warn ? "warn" : "";
     view.log = isFailure(o) ? o.log ?? null : null;
   }
 
@@ -333,7 +362,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
 
   if (req.kind === "update") {
     const u = row.update;
-    const size = aboutSize(u?.download_bytes);
+    const size = upToSize(u?.download_bytes);
     m.title = `Update ${name}?`;
     m.lines.push(`${name} ${installedLabel(row)} → ${targetLabel(u)}, downloaded from Adobe${size ? ` (${size})` : ""}.`);
     if (u?.adopt === true) m.lines.push(ADOPT_LINE);
@@ -346,7 +375,9 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
   } else if (req.kind === "all") {
     const rows = req.rows ?? [];
     const sizes = rows.map((r) => r.update?.download_bytes);
-    const total = sizes.every((b) => typeof b === "number" && b > 0) ? aboutSize(sizes.reduce((a, b) => a + b, 0)) : null;
+    // Each figure is that app's upper bound (apps can share components, so the sum overstates
+    // further); still an honest "up to".
+    const total = sizes.every((b) => typeof b === "number" && b > 0) ? upToSize(sizes.reduce((a, b) => a + b, 0)) : null;
     m.title = `Update ${rows.length} apps in “${prefixName}”?`;
     m.items = rows.map((r) => `${r.name} ${installedLabel(r)} → ${targetLabel(r.update)}`);
     m.lines.push(`They update one after another${total ? `, ${total} to download in total` : ""}.`);
@@ -360,7 +391,8 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     m.confirm = "Update all";
   } else if (req.kind === "unverified") {
     const t = req.target;
-    const size = t === row.update ? aboutSize(row.update?.download_bytes) : null;
+    // Mud Hut sizes only its recommended target (`update`); a newer build gets no figure.
+    const size = t === row.update ? upToSize(row.update?.download_bytes) : null;
     m.title = `Neutron hasn't verified ${name} ${targetLabel(t)} yet.`;
     m.lines.push("It might not open, or parts of it might not work, until Neutron is updated for it.");
     if (row.update?.verified === true && row.update.to !== t.to) {
@@ -423,8 +455,11 @@ export function dialogAction(req, choices = {}) {
     // `--version` takes the MAJOR number (Photoshop 2027 is 28), never the year: Mud Hut's own
     // `major`, else the leading number of the build it named.
     const major = nm?.major ?? majorOf(nm?.to);
+    // The dialog tells the user when the version is not verified; confirming it is the "one
+    // confirmation" (DECISIONS C70), so it passes --allow-unverified. Mud Hut still installs a
+    // verified build of that version when one exists.
     return { op: "install", app: row.id, version: major === null || major === undefined ? null : String(major),
-             label: `${row.name} ${nm?.label ?? nm?.year}`,
+             label: `${row.name} ${nm?.label ?? nm?.year}`, allowUnverified: nm?.verified !== true,
              removePrevious: !!choices.removePrevious, speechPacks: !!choices.speechPacks };
   }
   return null;

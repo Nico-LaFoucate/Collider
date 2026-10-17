@@ -13,7 +13,7 @@
 // (the 2026-09-18 session bug class).
 
 import { checkAdobeUpdates, updateAdobeApps, installApp } from "$lib/api.js";
-import { ukey, outcomeFromAppResult, outcomeFromTerminal, targetLabel } from "$lib/updates-logic.js";
+import { ukey, outcomeFromAppResult, outcomeFromTerminal, outcomeFromInstall, targetLabel } from "$lib/updates-logic.js";
 
 export const upd = $state({
   supported: true,     // false: Mud Hut cannot check (unsupported says why)
@@ -23,8 +23,8 @@ export const upd = $state({
   // The last check that was allowed to contact Adobe: { checked_at, online, feed_error,
   // from_cache, verified_list }. Offline reads never replace it.
   lastNetwork: null,
-  // `checked_at` of the last such check that reached Adobe (online), for "Last checked". When a
-  // check could not reach Adobe its time says nothing about how fresh the answer is.
+  // When Mud Hut last got Adobe's product list, for "Last checked": its `feed.fetched_at`, which
+  // every check reports (an offline read too: it is the time of the list it answered from).
   lastReachedAt: null,
   failed: null,        // a check that failed outright: its message (shown quietly, never as the Apps banner)
   prefixes: {},        // prefix -> Mud Hut's prefix object { ok, apps_running, update_in_progress, last_update, apps }
@@ -76,11 +76,13 @@ async function runCheck(prefixes, { refresh, offline, partial }) {
         checked_at: r.checked_at ?? null, online: r.online !== false, feed_error: r.feed_error ?? null,
         from_cache: !!r.from_cache, verified_list: r.verified_list ?? null,
       };
-      // `fetched_at` (when Mud Hut last got Adobe's list) is what "Last checked" means; Mud Hut's
-      // `checked_at` is the time of this run, which on a cached tick is not when Adobe was asked.
-      const reached = r.fetched_at ?? r.checked_at;
-      if (r.online !== false && reached) upd.lastReachedAt = reached;
     }
+    // "Last checked" = when Adobe's list was fetched: Mud Hut's `feed.fetched_at`, never its
+    // `checked_at`, which is the time of this run (on a cached tick, not when Adobe was asked).
+    // A Mud Hut without `feed` falls back to `checked_at` of a check that reached Adobe.
+    const reached = r.feed ? r.feed.fetched_at
+      : (!offline && r.online !== false ? r.checked_at : null);
+    if (reached && !(Date.parse(upd.lastReachedAt) > Date.parse(reached))) upd.lastReachedAt = reached;
     const before = upd.prefixes;
     const next = partial ? { ...before } : {};
     for (const p of r.prefixes ?? []) next[p.prefix] = p;
@@ -243,17 +245,16 @@ function settle(prefix, apps, r) {
  * Install a new yearly version (`mudhut install APP --method download --version MAJOR`), which
  * holds the prefix like an update does, so it is a job of the same kind on the card.
  */
-export async function runYearlyInstall({ prefix, app, version, label, removePrevious = false, speechPacks = false }) {
+export async function runYearlyInstall({ prefix, app, name = app, version, label, allowUnverified = false,
+                                         removePrevious = false, speechPacks = false }) {
   if (upd.jobs[prefix]) return null;
   delete upd.outcomes[ukey(prefix, app)];
   upd.jobs[prefix] = { kind: "install", apps: [app], app, stage: "starting", pct: 0, msg: "", label };
   let r = null;
   try {
-    r = await installApp({ app, method: "download", prefix, version, removePrevious, speechPacks,
+    r = await installApp({ app, method: "download", prefix, version, allowUnverified, removePrevious, speechPacks,
                            onEvent: (ev) => track(prefix, ev) });
-    upd.outcomes[ukey(prefix, app)] = r?.ok === false
-      ? { state: "failed", message: r.message ?? r.reason ?? `${label} didn't install.` }
-      : { state: "installed", label, message: r?.exit ? (r.message ?? null) : null };
+    upd.outcomes[ukey(prefix, app)] = outcomeFromInstall(r, { label, name });
   } catch (e) {
     upd.outcomes[ukey(prefix, app)] = { state: "failed", message: String(e) };
   } finally {

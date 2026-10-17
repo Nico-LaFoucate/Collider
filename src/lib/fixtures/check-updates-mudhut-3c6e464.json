@@ -1,0 +1,384 @@
+{
+ "checked_at": "2026-10-17T03:23:48Z",
+ "event": "result",
+ "feed": {
+  "fetched_at": "2026-10-17T02:15:08Z",
+  "source": "cache"
+ },
+ "feed_error": null,
+ "feed_error_detail": null,
+ "from_cache": true,
+ "next_check_after": "2026-10-17T08:15:08Z",
+ "ok": true,
+ "online": true,
+ "policy": "hold",
+ "prefixes": [
+  {
+   "apps": [
+    {
+     "id": "photoshop",
+     "installed": {
+      "base": "27.0",
+      "dir": "Adobe Photoshop 2026",
+      "label": "27.11",
+      "managed_by": "hdpim",
+      "version": "27.11.0.26",
+      "year": 2026
+     },
+     "name": "Photoshop",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [],
+     "sap": "PHSP",
+     "update": null
+    },
+    {
+     "id": "premiere",
+     "installed": {
+      "base": "26.0",
+      "dir": "Adobe Premiere Pro 2026",
+      "label": "26.3",
+      "managed_by": "hdpim",
+      "version": "26.3.0.93",
+      "year": 2026
+     },
+     "name": "Premiere Pro",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [
+      "aftereffects",
+      "mediaencoder"
+     ],
+     "sap": "PPRO",
+     "update": {
+      "adopt": false,
+      "blocked_reason": null,
+      "can_update": true,
+      "changed_bytes": 3188608272,
+      "download_bytes": 3955197627,
+      "kind": "in_place",
+      "label": "26.5.2",
+      "to": "26.5.2.5",
+      "verified": false
+     }
+    },
+    {
+     "id": "aftereffects",
+     "installed": {
+      "base": "26.0",
+      "dir": "Adobe After Effects 2026",
+      "label": "26.3",
+      "managed_by": "hdpim",
+      "version": "26.3.0.87",
+      "year": 2026
+     },
+     "name": "After Effects",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [
+      "premiere",
+      "mediaencoder"
+     ],
+     "sap": "AEFT",
+     "update": {
+      "adopt": false,
+      "blocked_reason": null,
+      "can_update": true,
+      "changed_bytes": 2855729119,
+      "download_bytes": 4659091806,
+      "kind": "in_place",
+      "label": "26.5",
+      "to": "26.5.0.89",
+      "verified": false
+     }
+    },
+    {
+     "id": "illustrator",
+     "installed": {
+      "base": "30.0",
+      "dir": "Adobe Illustrator 2026",
+      "label": "30.6",
+      "managed_by": "hdpim",
+      "version": "30.6.0.109",
+      "year": 2026
+     },
+     "name": "Illustrator",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [],
+     "sap": "ILST",
+     "update": {
+      "adopt": false,
+      "blocked_reason": null,
+      "can_update": true,
+      "changed_bytes": 2009496975,
+      "download_bytes": 2782303917,
+      "kind": "in_place",
+      "label": "30.8.2",
+      "to": "30.8.2.7",
+      "verified": false
+     }
+    },
+    {
+     "id": "animate",
+     "installed": {
+      "base": "24.0",
+      "dir": "Adobe Animate 2024",
+      "label": "24.0.13",
+      "managed_by": "hdpim",
+      "version": "24.0.13.5",
+      "year": 2024
+     },
+     "name": "Animate",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [],
+     "sap": "FLPR",
+     "update": {
+      "adopt": false,
+      "blocked_reason": null,
+      "can_update": true,
+      "changed_bytes": 1216640302,
+      "download_bytes": 3007319359,
+      "kind": "in_place",
+      "label": "24.0.15",
+      "to": "24.0.15.5",
+      "verified": false
+     }
+    },
+    {
+     "id": "lightroom",
+     "installed": {
+      "base": "8.3",
+      "dir": "Adobe Lightroom Classic",
+      "label": "15.4.1",
+      "managed_by": "hdpim",
+      "version": "15.4.1.202606201310",
+      "year": null
+     },
+     "name": "Lightroom Classic",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [],
+     "sap": "LTRM",
+     "update": {
+      "adopt": false,
+      "blocked_reason": null,
+      "can_update": true,
+      "changed_bytes": 3063591793,
+      "download_bytes": 3063591793,
+      "kind": "in_place",
+      "label": "15.6",
+      "to": "15.6.0.202609251514",
+      "verified": true
+     }
+    },
+    {
+     "id": "mediaencoder",
+     "installed": {
+      "base": "26.0",
+      "dir": "Adobe Media Encoder 2026",
+      "label": "26.3.1",
+      "managed_by": "hdpim",
+      "version": "26.3.1.1",
+      "year": 2026
+     },
+     "name": "Media Encoder",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [
+      "premiere",
+      "aftereffects"
+     ],
+     "sap": "AME",
+     "update": {
+      "adopt": false,
+      "blocked_reason": null,
+      "can_update": true,
+      "changed_bytes": 1677160677,
+      "download_bytes": 2385252721,
+      "kind": "in_place",
+      "label": "26.5.2",
+      "to": "26.5.2.2",
+      "verified": false
+     }
+    }
+   ],
+   "apps_running": [],
+   "last_update": {
+    "app": "photoshop",
+    "at": "2026-10-17T02:26:16Z",
+    "from": "27.8.0.13",
+    "log": "/lab/cr/AE2026/.mudhut/update.log",
+    "message": "",
+    "ok": true,
+    "state": "updated",
+    "to": "27.11.0.26"
+   },
+   "ok": true,
+   "prefix": "/lab/cr/AE2026",
+   "runtime": "11.10-130",
+   "update_in_progress": null
+  },
+  {
+   "apps": [
+    {
+     "id": "premiere",
+     "installed": {
+      "base": "25.0",
+      "dir": "Adobe Premiere Pro 2025",
+      "label": "25.3",
+      "managed_by": "adopt-needed",
+      "version": "25.3.0.084",
+      "year": 2025
+     },
+     "name": "Premiere Pro",
+     "new_major": {
+      "label": "2026",
+      "major": 26,
+      "to": "26.5.2.5",
+      "verified": false,
+      "year": 2026
+     },
+     "newer_unverified": null,
+     "notes": [],
+     "related": [],
+     "sap": "PPRO",
+     "update": {
+      "adopt": true,
+      "blocked_reason": null,
+      "can_update": true,
+      "changed_bytes": 2624208671,
+      "download_bytes": 4668593125,
+      "kind": "in_place",
+      "label": "25.6.6",
+      "to": "25.6.6.005",
+      "verified": false
+     }
+    },
+    {
+     "id": "animate",
+     "installed": {
+      "base": "24.0",
+      "dir": "Adobe Animate 2024",
+      "label": "24.0.13",
+      "managed_by": "hdpim",
+      "version": "24.0.13.5",
+      "year": 2024
+     },
+     "name": "Animate",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [],
+     "sap": "FLPR",
+     "update": {
+      "adopt": false,
+      "blocked_reason": null,
+      "can_update": true,
+      "changed_bytes": 1216640302,
+      "download_bytes": 3007319359,
+      "kind": "in_place",
+      "label": "24.0.15",
+      "to": "24.0.15.5",
+      "verified": false
+     }
+    },
+    {
+     "id": "lightroom",
+     "installed": {
+      "base": "8.3",
+      "dir": "Adobe Lightroom Classic",
+      "label": "15.6",
+      "managed_by": "adopt-needed",
+      "version": "15.6.0.202609251514",
+      "year": null
+     },
+     "name": "Lightroom Classic",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [],
+     "sap": "LTRM",
+     "update": null
+    },
+    {
+     "id": "audition",
+     "installed": {
+      "base": "26.0",
+      "dir": "Adobe Audition 2026",
+      "label": "26.5",
+      "managed_by": "adopt-needed",
+      "version": "26.5.0.82",
+      "year": 2026
+     },
+     "name": "Audition",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [
+      "premiere"
+     ],
+     "sap": "AUDT",
+     "update": null
+    },
+    {
+     "id": "indesign",
+     "installed": {
+      "base": "21.0",
+      "dir": "Adobe InDesign 2026",
+      "label": "21.6",
+      "managed_by": "adopt-needed",
+      "version": "21.6.0.057",
+      "year": 2026
+     },
+     "name": "InDesign",
+     "new_major": null,
+     "newer_unverified": null,
+     "notes": [],
+     "related": [],
+     "sap": "IDSN",
+     "update": null
+    }
+   ],
+   "apps_running": [],
+   "last_update": {
+    "app": "animate",
+    "at": "2026-10-17T02:29:13Z",
+    "from": "24.0.10.14",
+    "log": "/lab/cr/LrcRelease/.mudhut/update.log",
+    "message": "",
+    "ok": true,
+    "state": "updated",
+    "to": "24.0.13.5"
+   },
+   "ok": true,
+   "prefix": "/lab/cr/LrcRelease",
+   "runtime": "11.10-130",
+   "update_in_progress": null
+  },
+  {
+   "apps": [],
+   "apps_running": [],
+   "error": "This is not a prefix (it has no drive_c folder).",
+   "last_update": null,
+   "ok": false,
+   "prefix": "/nonexistent/x",
+   "update_in_progress": null
+  }
+ ],
+ "schema": 1,
+ "verified_list": {
+  "draft": true,
+  "serial": 1,
+  "signature": "valid",
+  "source": "bundled"
+ }
+}

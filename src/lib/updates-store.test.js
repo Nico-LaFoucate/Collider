@@ -72,10 +72,27 @@ test("Check now passes --refresh; an offline read never sets Last checked", asyn
   assert.equal(upd.lastReachedAt, "2026-10-16T14:02:11Z");
 });
 
-test("Last checked prefers when Adobe was reached (fetched_at) over the run time", async () => {
-  fake.check = () => result([pobj(P, [])], { checked_at: "2026-10-16T18:30:00Z", fetched_at: "2026-10-16T09:00:00Z", from_cache: true });
+test("Last checked is Mud Hut's feed.fetched_at, from any check, never the run time", async () => {
+  fake.check = () => result([pobj(P, [])], { checked_at: "2026-10-16T18:30:00Z", from_cache: true,
+                                             feed: { fetched_at: "2026-10-16T09:00:00Z", source: "cache" } });
+  await store.check([P], { offline: true });
+  assert.equal(upd.lastReachedAt, "2026-10-16T09:00:00Z", "an offline read reports when the list was fetched");
+  fake.check = () => result([pobj(P, [])], { feed: { fetched_at: null, source: "cache" }, online: false });
   await store.check([P]);
-  assert.equal(upd.lastReachedAt, "2026-10-16T09:00:00Z");
+  assert.equal(upd.lastReachedAt, "2026-10-16T09:00:00Z", "a check that could not reach Adobe keeps the last time");
+  fake.check = () => result([pobj(P, [])], { feed: { fetched_at: "2026-10-15T00:00:00Z", source: "cache" } });
+  await store.check([P]);
+  assert.equal(upd.lastReachedAt, "2026-10-16T09:00:00Z", "never goes back in time");
+});
+
+test("the real Mud Hut result (3c6e464) loads into the store", async () => {
+  const real = JSON.parse(readFileSync(join(here, "fixtures/check-updates-mudhut-3c6e464.json"), "utf8"));
+  fake.check = () => ({ ...real, supported: true });
+  await store.check(real.prefixes.map((p) => p.prefix), { offline: true });
+  assert.equal(upd.lastReachedAt, "2026-10-17T02:15:08Z", "feed.fetched_at, not checked_at 03:23:48");
+  assert.equal(store.rowFor("/lab/cr/AE2026", "premiere").update.download_bytes, 3955197627);
+  assert.equal(upd.prefixes["/nonexistent/x"].ok, false);
+  assert.deepEqual(store.followedPrefixes(), []);
 });
 
 test("offline is a quiet status; the rows stay", async () => {
@@ -192,13 +209,15 @@ test("one job per prefix; a second prefix can run at the same time", { timeout: 
 test("yearly install: an install job, version and choices passed, outcome installed", async () => {
   fake.check = () => result([]);
   fake.install = async ({ onEvent }) => { onEvent({ event: "progress", stage: "download", pct: 10, msg: "x" });
-                                          return { event: "result", ok: true }; };
-  await store.runYearlyInstall({ prefix: P, app: "premiere", version: "27", label: "Premiere Pro 2027",
-                                 removePrevious: true, speechPacks: false });
+                                          return { event: "result", ok: true, version: "27.0.0.40",
+                                                   removed_previous: [{ version: "26.3.0.12", removed: true }] }; };
+  await store.runYearlyInstall({ prefix: P, app: "premiere", name: "Premiere Pro", version: "27", label: "Premiere Pro 2027",
+                                 allowUnverified: true, removePrevious: true, speechPacks: false });
   const args = fake.calls.find((c) => c[0] === "install")[1];
-  assert.deepEqual([args.app, args.method, args.prefix, args.version, args.removePrevious, args.speechPacks],
-                   ["premiere", "download", P, "27", true, false]);
-  assert.deepEqual(upd.outcomes[ukey(P, "premiere")], { state: "installed", label: "Premiere Pro 2027", message: null });
+  assert.deepEqual([args.app, args.method, args.prefix, args.version, args.allowUnverified, args.removePrevious, args.speechPacks],
+                   ["premiere", "download", P, "27", true, true, false]);
+  assert.deepEqual(upd.outcomes[ukey(P, "premiere")],
+                   { state: "installed", label: "Premiere Pro 2027", message: "Removed Premiere Pro 26.3.0.12.", warn: false });
 });
 
 test("an update left running by an earlier Collider: followed until it finishes, then the page is told", async () => {
