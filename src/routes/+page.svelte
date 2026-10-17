@@ -24,6 +24,44 @@
     win.onResized(sync).then((u) => (unlisten = u)).catch(() => {});
     return () => { if (unlisten) unlisten(); };
   });
+
+  // --- close guard ---
+  // Closing the window ends Collider, and with it the reading end of every running job's output.
+  // `neutron` stops at its next write when that happens (it treats a closed pipe as "the reader
+  // left", bin/neutron main()), so a Neutron update or a provision stops partway. Ask first.
+  // Every way of closing (our button, the compositor's close, Alt+F4) arrives here: with a
+  // listener registered, Tauri holds the close and this handler decides (`destroy()` needs
+  // core:window:allow-destroy, granted in capabilities/default.json).
+  let closeGuard = $state(null);   // null, or the busyJobs() list shown in the dialog
+  onMount(() => {
+    let unlisten = null;
+    win.onCloseRequested((e) => {
+      const jobs = busyJobs();
+      if (jobs.length) { e.preventDefault(); closeGuard = jobs; }
+    }).then((u) => (unlisten = u)).catch(() => {});
+    return () => { if (unlisten) unlisten(); };
+  });
+  function closeAnyway() { closeGuard = null; win.destroy().catch(() => {}); }
+
+  // What would be cut off by closing now, one plain sentence each.
+  function busyJobs() {
+    const jobs = [];
+    if (mhInstall.phase === "installing") {
+      jobs.push(`${mhInstall.name} is installing. If you close Collider now, the install can stop ` +
+                `partway, and you would need to start it again.`);
+    }
+    if (nrun.phase === "running") {
+      jobs.push(nrun.kind === "update"
+        ? "Neutron is updating. If you close Collider now, the update stops partway."
+        : "Neutron is being set up. If you close Collider now, setup stops partway.");
+    }
+    if (provisioning) {
+      const name = prefixes.find((p) => p.path === provisioning)?.name ?? provisioning;
+      jobs.push(`“${name}” is being provisioned. If you close Collider now, provisioning stops ` +
+                `partway; run Provision again afterward.`);
+    }
+    return jobs;
+  }
   // An undecorated GTK window has no resize border of its own (tao's edge hit-test sits on the GTK
   // window, under the webview), so thin handles along the page edge start the compositor's resize
   // for the matching direction. [css class, Tauri ResizeDirection]
@@ -1144,6 +1182,21 @@
     </footer>
   </main>
   </div>
+
+  {#if closeGuard}
+    <div class="modal-back">
+      <div class="modal" role="alertdialog" aria-labelledby="close-guard-h">
+        <div class="modal-h" id="close-guard-h">Collider is still working</div>
+        {#each closeGuard as line}
+          <div class="modal-p">{line}</div>
+        {/each}
+        <div class="modal-actions">
+          <button class="primary" onclick={() => (closeGuard = null)}>Keep Collider open</button>
+          <button class="ghost-btn danger" onclick={closeAnyway}>Close anyway</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -1354,6 +1407,17 @@
   .found-row:hover { background: rgba(255,255,255,0.06); }
   .found-name { font-size: 12.5px; font-weight: 600; }
   .found-path { font-size: 10.5px; color: rgba(255,255,255,0.42); }
+
+  /* --- modal dialogs (close guard) --------------------------------------------------- */
+  .modal-back { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.55);
+                display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .modal { width: 100%; max-width: 440px; padding: 20px 22px; border-radius: 12px;
+           background: #17171c; border: 1px solid rgba(255,255,255,0.12);
+           box-shadow: 0 18px 48px -12px rgba(0,0,0,0.8);
+           display: flex; flex-direction: column; gap: 10px; }
+  .modal-h { font-size: 15px; font-weight: 600; color: #f0f0f2; }
+  .modal-p { font-size: 12.5px; color: rgba(255,255,255,0.7); line-height: 1.5; }
+  .modal-actions { display: flex; gap: 9px; margin-top: 8px; }
 
   .prov { margin-top: 7px; }
   .prov-bar { height: 4px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
