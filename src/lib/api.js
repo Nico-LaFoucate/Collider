@@ -134,9 +134,9 @@ export async function getSettings() {
   return await invoke("get_settings");
 }
 
-/** Persist settings from the Preferences tab. `settings` must be the full Settings
- *  object (scale_*, theme, custom_colors, button_icon_set) — omitted fields reset to
- *  their Rust defaults, so always send the whole thing. */
+/** Persist settings from the Preferences tab. `settings` is merged onto the stored settings:
+ *  a field left out keeps its stored value, and `prefixes`/`selected_prefix` are ignored (the
+ *  Prefixes tab owns the registry). */
 export async function setSettings(settings) {
   return await invoke("set_settings", { settings });
 }

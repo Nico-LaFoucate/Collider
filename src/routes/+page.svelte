@@ -518,15 +518,13 @@
 
   // Persist on any change. "auto unless overridden": engine uses scale_value only
   // when scale_mode === "manual".
+  // Every Preferences field goes, so a new setting needs no entry here (the old explicit list
+  // reset any field it did not name). The backend merges onto the stored settings, and the
+  // prefix registry is the Prefixes tab's, so this page's possibly stale copy is left out.
   async function saveSettings() {
     try {
-      await setSettings({
-        scale_mode: settings.scale_mode,
-        scale_value: settings.scale_value,
-        theme: settings.theme,
-        custom_colors: settings.custom_colors,
-        button_icon_set: settings.button_icon_set,
-      });
+      const { prefixes: _registry, selected_prefix: _selected, ...prefs } = settings;
+      await setSettings(prefs);
     } catch (e) { error = String(e); }
   }
 

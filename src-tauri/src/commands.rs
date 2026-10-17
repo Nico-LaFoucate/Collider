@@ -301,20 +301,15 @@ pub fn get_settings() -> Result<Settings, String> {
 }
 
 /// Persist settings from the Preferences tab.
+///
+/// The page's object is MERGED onto the stored settings (core::settings::merge_patch): a field it
+/// leaves out keeps its stored value, and the prefix registry is never written from here. Before
+/// this, the page sent an explicit field list and every setting missing from it was reset to its
+/// default whenever the user touched any preference.
 #[tauri::command]
-pub fn set_settings(mut settings: Settings) -> Result<(), String> {
-    // The Preferences UI sends an explicit field list that does NOT include the prefix registry —
-    // it owns display/theme settings; prefixes belong to the Prefixes tab. Because save() writes
-    // the whole struct, the omitted fields would deserialize to empty and WIPE every registered
-    // prefix the moment the user touched a preference. Carry the stored values forward.
-    let stored = crate::core::settings::load();
-    if settings.prefixes.is_empty() {
-        settings.prefixes = stored.prefixes;
-    }
-    if settings.selected_prefix.is_none() {
-        settings.selected_prefix = stored.selected_prefix;
-    }
-    crate::core::settings::save(&settings).map_err(estr)?;
+pub fn set_settings(settings: Value) -> Result<(), String> {
+    let merged = crate::core::settings::merge_patch(&crate::core::settings::load(), &settings)?;
+    crate::core::settings::save(&merged).map_err(estr)?;
     Ok(())
 }
 

@@ -112,6 +112,29 @@ pub fn save(s: &Settings) -> std::io::Result<()> {
     std::fs::write(&p, json)
 }
 
+/// Apply a save from the Preferences tab onto the stored settings.
+///
+/// The page sends the fields it owns. It used to send an explicit list, and `set_settings` wrote
+/// the whole struct, so any setting missing from that list (every new one, until someone
+/// remembered the list) was reset to its default the moment the user touched any preference.
+/// Merging onto what is stored makes an omitted field keep its value instead.
+///
+/// `prefixes` and `selected_prefix` belong to the prefix registry (core/prefixes.rs), never to
+/// Preferences: a page's copy of them can be stale, so they are ignored here.
+pub fn merge_patch(stored: &Settings, patch: &serde_json::Value) -> Result<Settings, String> {
+    let mut base = serde_json::to_value(stored).map_err(|e| e.to_string())?;
+    let (Some(b), Some(p)) = (base.as_object_mut(), patch.as_object()) else {
+        return Err("settings must be a JSON object".into());
+    };
+    for (k, v) in p {
+        if k == "prefixes" || k == "selected_prefix" {
+            continue;
+        }
+        b.insert(k.clone(), v.clone());
+    }
+    serde_json::from_value(base).map_err(|e| format!("invalid settings: {e}"))
+}
+
 /// The display scale to pass to the engine: the manual override when set, else None, and
 /// `neutron launch` detects the desktop's scale itself (the one detector, DECISIONS C4b).
 pub fn effective_scale() -> Option<f64> {
@@ -170,5 +193,42 @@ mod tests {
         for gone in ["home_window_fix", "home_window_y", "settings_migration"] {
             assert!(!out.contains(gone), "{gone} should not be written any more");
         }
+    }
+
+    /// The Preferences save trap: a save that does not mention a setting must keep it, not
+    /// reset it to its default.
+    #[test]
+    fn a_preferences_save_keeps_what_it_does_not_mention() {
+        let stored = parse(CONFIG_0_1_0);
+        let patch = serde_json::json!({ "theme": "dark" });
+        let s = merge_patch(&stored, &patch).unwrap();
+        assert_eq!(s.theme, "dark", "the field it sent changes");
+        assert_eq!(s.button_icon_set, "win11", "a field it left out keeps its stored value");
+        assert_eq!(s.scale_mode, "manual");
+        assert_eq!(s.scale_value, Some(1.75));
+        assert_eq!(s.prefixes.len(), 1);
+    }
+
+    /// The page's copy of the registry can be stale (a prefix added since it loaded settings), so
+    /// a save never writes it, empty or not.
+    #[test]
+    fn a_preferences_save_never_touches_the_prefix_registry() {
+        let stored = parse(CONFIG_0_1_0);
+        for patch in [
+            serde_json::json!({ "prefixes": [], "selected_prefix": null }),
+            serde_json::json!({ "prefixes": [{ "name": "Old", "path": "/old" }], "selected_prefix": "/old" }),
+        ] {
+            let s = merge_patch(&stored, &patch).unwrap();
+            assert_eq!(s.prefixes.len(), 1);
+            assert_eq!(s.prefixes[0].path, "/data/prefixes/adobe-2025");
+            assert_eq!(s.selected_prefix.as_deref(), Some("/data/prefixes/adobe-2025"));
+        }
+    }
+
+    #[test]
+    fn a_save_with_a_wrong_type_is_refused() {
+        let stored = parse(CONFIG_0_1_0);
+        assert!(merge_patch(&stored, &serde_json::json!({ "scale_value": "big" })).is_err());
+        assert!(merge_patch(&stored, &serde_json::json!(["not", "an", "object"])).is_err());
     }
 }
