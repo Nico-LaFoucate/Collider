@@ -72,6 +72,12 @@ test("Check now passes --refresh; an offline read never sets Last checked", asyn
   assert.equal(upd.lastReachedAt, "2026-10-16T14:02:11Z");
 });
 
+test("Last checked prefers when Adobe was reached (fetched_at) over the run time", async () => {
+  fake.check = () => result([pobj(P, [])], { checked_at: "2026-10-16T18:30:00Z", fetched_at: "2026-10-16T09:00:00Z", from_cache: true });
+  await store.check([P]);
+  assert.equal(upd.lastReachedAt, "2026-10-16T09:00:00Z");
+});
+
 test("offline is a quiet status; the rows stay", async () => {
   fake.check = () => result([pobj(P, [row("premiere", "Premiere Pro")])], { online: false, feed_error: "Couldn't reach Adobe." });
   await store.check([P]);

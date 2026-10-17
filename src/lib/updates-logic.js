@@ -257,7 +257,7 @@ export function prefixSummary({ pstate, job, outcomes = {} }) {
     return { dot: "warn", text: `${what} ${activeName(act, pstate)}…${pct}`, action: null };
   }
   if (!pstate) return { dot: "", text: "Not checked yet", action: null };
-  if (pstate.ok === false) return { dot: "", text: pstate.message ?? "Couldn't check this prefix.", action: null };
+  if (pstate.ok === false) return { dot: "", text: prefixError(pstate), action: null };
   const apps = pstate.apps ?? [];
   const stuck = apps.find((r) => (outcomes[r.id] ?? outcomeFromLastUpdate(
     listed([pstate.last_update?.app], r) ? pstate.last_update : null))?.state === "incomplete");
@@ -285,6 +285,9 @@ export function prefixSummary({ pstate, job, outcomes = {} }) {
   return { dot: "ok", text: "Up to date", action: null };
 }
 
+/** Mud Hut's sentence for a prefix it could not check (`error`; `message` accepted too). */
+export const prefixError = (pstate) => pstate?.error ?? pstate?.message ?? "Couldn't check this prefix.";
+
 /** How many verified point updates are ready across the given prefix objects (the nav count). */
 export function readyCount(prefixStates) {
   let n = 0;
@@ -302,6 +305,9 @@ function snapshotLine(snapshot) {
     ? "A backup copy is kept first and put back if the update fails."
     : "Backups are turned off in Preferences, so a failed update can't be put back automatically.";
 }
+// Mud Hut flags a Windows copy that Adobe's installer has no record of (`update.adopt`); it
+// registers the copy first, so the run takes longer than a plain update.
+const ADOPT_LINE = "This copy came from Windows, so Mud Hut first registers it with Adobe's installer, then updates it.";
 const SPEECH_HELP = "Premiere Pro uses these to make captions from speech. Creative Cloud doesn't " +
                     "install them by default either.";
 export const SPEECH_LABEL = "Speech-to-text languages (about 13.8 GB)";
@@ -330,6 +336,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     const size = aboutSize(u?.download_bytes);
     m.title = `Update ${name}?`;
     m.lines.push(`${name} ${installedLabel(row)} → ${targetLabel(u)}, downloaded from Adobe${size ? ` (${size})` : ""}.`);
+    if (u?.adopt === true) m.lines.push(ADOPT_LINE);
     m.lines.push(closedLine(prefixName, false));
     m.lines.push(snapshotLine(snapshot));
     for (const r of req.related ?? []) {
@@ -362,6 +369,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
       m.lines.push("Once Neutron has verified it, it shows here as a normal update.");
     }
     m.lines.push(`${name} ${installedLabel(row)} → ${targetLabel(t)}, downloaded from Adobe${size ? ` (${size})` : ""}.`);
+    if (row.update?.adopt === true) m.lines.push(ADOPT_LINE);
     m.lines.push(closedLine(prefixName, false));
     m.lines.push(snapshotLine(snapshot));
     m.confirm = "Update anyway";
@@ -412,7 +420,10 @@ export function dialogAction(req, choices = {}) {
   if (req.kind === "finish") return { op: "update", apps: [row.id], to: null, allowUnverified: false };
   if (req.kind === "yearly") {
     const nm = row.new_major;
-    return { op: "install", app: row.id, version: majorOf(nm?.to) ?? String(nm?.year ?? ""),
+    // `--version` takes the MAJOR number (Photoshop 2027 is 28), never the year: Mud Hut's own
+    // `major`, else the leading number of the build it named.
+    const major = nm?.major ?? majorOf(nm?.to);
+    return { op: "install", app: row.id, version: major === null || major === undefined ? null : String(major),
              label: `${row.name} ${nm?.label ?? nm?.year}`,
              removePrevious: !!choices.removePrevious, speechPacks: !!choices.speechPacks };
   }

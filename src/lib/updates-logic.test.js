@@ -150,6 +150,8 @@ test("card: Mud Hut's last_update shows a failure, never a stale success", () =>
 
 test("prefix summary line", () => {
   assert.equal(prefixSummary({ pstate: undefined }).text, "Not checked yet");
+  assert.equal(prefixSummary({ pstate: { prefix: "/p", ok: false, error: "/p is not a Neutron prefix.", apps: [] } }).text,
+               "/p is not a Neutron prefix.", "Mud Hut puts a failed prefix's sentence in `error`");
   assert.equal(prefixSummary({ pstate: pstate([upToDate()]) }).text, "Up to date");
   assert.deepEqual(prefixSummary({ pstate: pstate([premiere(), upToDate()]) }),
                    { dot: "warn", text: "Premiere Pro 26.5.2 is available", action: { kind: "update", id: "premiere" } });
@@ -175,6 +177,14 @@ test("dialog: one verified update", () => {
   const busy = dialogModel({ kind: "update", row: premiere() },
                            { prefixName: "Adobe 2026", appsRunning: ["Premiere Pro", "After Effects"] });
   assert.equal(busy.blockedBy, "Close Premiere Pro and After Effects first. Updating needs every Adobe app in “Adobe 2026” closed.");
+});
+
+test("dialog: a Windows copy Mud Hut must register first says so", () => {
+  const ae = { ...aftereffects(), update: { ...aftereffects().update, adopt: true } };
+  const m = dialogModel({ kind: "update", row: ae }, { prefixName: "Adobe 2026" });
+  assert.equal(m.lines[1], "This copy came from Windows, so Mud Hut first registers it with Adobe's installer, then updates it.");
+  const plain = dialogModel({ kind: "update", row: aftereffects() }, { prefixName: "Adobe 2026" });
+  assert.ok(!plain.lines.some((l) => l.includes("registers")), "only when Mud Hut flags it");
 });
 
 test("dialog: update all lists what it covers and what it leaves out", () => {
@@ -229,6 +239,9 @@ test("dialog actions: what runs on confirm", () => {
   assert.deepEqual(dialogAction({ kind: "yearly", row }, { removePrevious: true }),
                    { op: "install", app: "premiere", version: "27", label: "Premiere Pro 2027",
                      removePrevious: true, speechPacks: false });
+  // Mud Hut's own `major` wins (Photoshop 2027 is major 28, never the year).
+  const ps = { ...photoshopUnverified(), new_major: { year: 2027, to: "28.0.0.50", label: "2027", major: 28, verified: true } };
+  assert.equal(dialogAction({ kind: "yearly", row: ps }).version, "28");
 });
 
 test("outcomes from Mud Hut's update events", () => {

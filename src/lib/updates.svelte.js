@@ -76,7 +76,10 @@ async function runCheck(prefixes, { refresh, offline, partial }) {
         checked_at: r.checked_at ?? null, online: r.online !== false, feed_error: r.feed_error ?? null,
         from_cache: !!r.from_cache, verified_list: r.verified_list ?? null,
       };
-      if (r.online !== false && r.checked_at) upd.lastReachedAt = r.checked_at;
+      // `fetched_at` (when Mud Hut last got Adobe's list) is what "Last checked" means; Mud Hut's
+      // `checked_at` is the time of this run, which on a cached tick is not when Adobe was asked.
+      const reached = r.fetched_at ?? r.checked_at;
+      if (r.online !== false && reached) upd.lastReachedAt = reached;
     }
     const before = upd.prefixes;
     const next = partial ? { ...before } : {};

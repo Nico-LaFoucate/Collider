@@ -10,7 +10,8 @@
   import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
            runUpdate, runYearlyInstall, targetLabels, anyJob, ukey } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
-           cardView, joinNames, installedLabel, targetLabel, aboutSize, SPEECH_LABEL } from "$lib/updates-logic.js";
+           cardView, joinNames, installedLabel, targetLabel, aboutSize, prefixError,
+           SPEECH_LABEL } from "$lib/updates-logic.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
@@ -730,6 +731,10 @@
       try { health = await doctor(prefix); } catch (e) { health = null; }
       const cat = await listApps(prefix);          // the app catalog + install status
       apps = (cat?.apps ?? []).filter((a) => a.installed);
+      // Re-read what Mud Hut says about this prefix too (locally, Adobe is not contacted): which
+      // apps are open decides whether Update is offered, and an app closed outside Collider
+      // would otherwise keep "Close … first" until the next scheduled check.
+      check([prefix], { offline: true, partial: true, skipIfBusy: true });
     } catch (e) {
       error = String(e);
       info = null;
@@ -1103,7 +1108,7 @@
                   {#if !ps}
                     <div class="updv-quiet">Not checked yet</div>
                   {:else if ps.ok === false}
-                    <div class="updv-quiet">{ps.message ?? "Couldn't check this prefix."}</div>
+                    <div class="updv-quiet">{prefixError(ps)}</div>
                   {:else}
                     {#if act && !act.ours}
                       <div class="updv-quiet">
