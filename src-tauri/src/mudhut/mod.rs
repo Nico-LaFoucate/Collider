@@ -379,6 +379,7 @@ fn update_args(prefix: &str, apps: &[String], opts: &UpdateOpts) -> Vec<String> 
 /// - the terminal `error` (refused because an app is running: exit 3; network: 5; disk: 6; ...)
 ///   with `ok:false` and `exit` added, keeping Mud Hut's `code`, `message`, `apps_running` and
 ///   `prefix_changed`, so "nothing happened, close Premiere Pro first" is not shown as a failure.
+///
 /// Only a run that produced neither (Mud Hut could not start, or died without a word) is an Err.
 ///
 /// It runs in its own session, and Mud Hut's update keeps going if Collider is closed (it writes
@@ -581,7 +582,7 @@ pub(crate) mod tests {
     fn check_passes_the_contract_shape_through_verbatim() {
         let f = fake_output(&format!("{CONTRACT_CHECK}\n"), "", 0);
         let p = "/home/u/Neutron Prefixes/Adobe 2026".to_string();
-        let v = check_updates_with(&f.bin, &[p.clone()], &opts(Some("24h"), false, false)).unwrap();
+        let v = check_updates_with(&f.bin, std::slice::from_ref(&p), &opts(Some("24h"), false, false)).unwrap();
         assert_eq!(v["supported"], true);
         assert!(v.get("exit").is_none());
         assert_eq!(v["online"], true);

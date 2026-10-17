@@ -452,6 +452,8 @@ pub async fn check_adobe_updates(
 /// `version` installs a specific yearly version (`--version MAJOR`), `speech_packs` adds Premiere
 /// Pro's speech-to-text languages, `remove_previous` removes the previous yearly version after the
 /// new one installs. All three are the user's choices in the dialog; absent means off.
+// One argument per field the page sends: a Tauri command's parameters ARE its IPC shape.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn install_app(
     app: String,
