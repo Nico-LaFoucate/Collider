@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import {
   ukey, upToSize, joinNames, majorOf, updateAllPlan, cardView, prefixSummary, readyCount,
   dialogModel, dialogAction, outcomeFromAppResult, outcomeFromTerminal, outcomeFromLastUpdate,
-  outcomeFromInstall, outcomeNote, SPEECH_LABEL, SPEECH_HELP,
+  outcomeFromInstall, outcomeNote, SPEECH_LABEL, SPEECH_HELP, pickRow,
 } from "./updates-logic.js";
 import { readFileSync } from "node:fs";
 
@@ -319,4 +319,18 @@ test("the real Mud Hut output (3c6e464) renders: sizes are upper bounds, never c
                    { op: "install", app: "premiere", version: "26", label: "Premiere Pro 2026", allowUnverified: true,
                      removePrevious: false, speechPacks: false });
   assert.equal(prefixSummary({ pstate: bad }).text, "This is not a prefix (it has no drive_c folder).");
+});
+
+test("a card takes the row of its own year when two yearly versions sit side by side", () => {
+  // Audition 2025 and 2026 in one lab prefix, as Mud Hut 0.3.0 reported them.
+  const r25 = { id: "audition", installed: { version: "25.6.6.005", year: 2025, dir: "Adobe Audition 2025" }, new_major: null };
+  const r26 = { id: "audition", installed: { version: "26.5.0.82", year: 2026, dir: "Adobe Audition 2026" }, new_major: null };
+  const pr = { id: "premiere", installed: { version: "26.3.0.12", year: 2026 } };
+  const card = { id: "audition", version: "2026", exe: "/p/drive_c/Program Files/Adobe/Adobe Audition 2026/Adobe Audition.exe" };
+  assert.equal(pickRow([r25, r26, pr], card), r26, "by the folder in the exe path");
+  assert.equal(pickRow([r25, r26], { id: "audition", version: "2025" }), r25, "by year");
+  assert.equal(pickRow([r25, r26], { id: "audition" }), r26, "else the newest installed");
+  assert.equal(pickRow([pr], { id: "premiere" }), pr);
+  assert.equal(pickRow([pr], { id: "audition" }), undefined);
+  assert.equal(pickRow(undefined, card), undefined);
 });

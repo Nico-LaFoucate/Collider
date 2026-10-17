@@ -5,7 +5,7 @@
   import { launchApp, isAppAlive, cleanExitApp, forceQuitApp, adoptApp } from "$lib/api.js";
   import { onDestroy } from "svelte";
   import { upd, ukey } from "$lib/updates.svelte.js";
-  import { cardView } from "$lib/updates-logic.js";
+  import { cardView, pickRow } from "$lib/updates-logic.js";
 
   // app = { id, name, accent, export, installed }; info = shared prefix info.
   // neutronBusy: a Neutron update is running (Adobe updates wait for it).
@@ -44,7 +44,7 @@
   const progress = $derived(STEP_PROGRESS[step.step] ?? 0);
 
   // --- Adobe app update for this app in this prefix: Mud Hut's row, rendered (updates-logic.js).
-  const urow = $derived(upd.prefixes[prefix]?.apps?.find((a) => a.id === app.id));
+  const urow = $derived(pickRow(upd.prefixes[prefix]?.apps, app));
   const uv = $derived(cardView({
     row: urow, id: app.id, name: app.name, pstate: upd.prefixes[prefix], job: upd.jobs[prefix],
     outcome: upd.outcomes[ukey(prefix, app.id)], appRunning: running || busy, neutronBusy,

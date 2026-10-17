@@ -40,6 +40,29 @@ export const targetLabel = (t) => t?.label ?? t?.to ?? "";
 /** The major number of a build ("27.0.0.40" -> "27"), for `mudhut install --version MAJOR`. */
 export const majorOf = (build) => (typeof build === "string" && /^\d+/.test(build) ? build.match(/^\d+/)[0] : null);
 
+/**
+ * The row for one app card. Adobe installs yearly versions side by side; Neutron shows one card
+ * per app, Mud Hut reports one row per installed year. Take the row of the card's own install (its
+ * folder in the card's exe path, else its year), else the newest installed.
+ */
+export function pickRow(rows, card) {
+  const same = (rows ?? []).filter((r) => r && r.id === card?.id);
+  if (same.length <= 1) return same[0];
+  const exe = String(card.exe ?? "").replace(/\\/g, "/").toLowerCase();
+  const dir = (r) => String(r.installed?.dir ?? "").toLowerCase();
+  return same.find((r) => dir(r) && exe.includes(`/${dir(r)}/`))
+    ?? same.find((r) => r.installed?.year != null && String(r.installed.year) === String(card.version))
+    ?? same.reduce((a, b) => (cmpBuild(b.installed?.version, a.installed?.version) > 0 ? b : a));
+}
+const cmpBuild = (x, y) => {
+  const px = String(x ?? "").split(".").map(Number), py = String(y ?? "").split(".").map(Number);
+  for (let i = 0; i < Math.max(px.length, py.length); i++) {
+    const d = (px[i] || 0) - (py[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+};
+
 /** Is this app one of `list`? Mud Hut names running apps by display name and an update's apps by
  *  id, so both are accepted. */
 export function listed(list, row) {

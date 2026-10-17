@@ -13,7 +13,7 @@
 // (the 2026-09-18 session bug class).
 
 import { checkAdobeUpdates, updateAdobeApps, installApp } from "$lib/api.js";
-import { ukey, outcomeFromAppResult, outcomeFromTerminal, outcomeFromInstall, targetLabel } from "$lib/updates-logic.js";
+import { ukey, pickRow, outcomeFromAppResult, outcomeFromTerminal, outcomeFromInstall, targetLabel } from "$lib/updates-logic.js";
 
 export const upd = $state({
   supported: true,     // false: Mud Hut cannot check (unsupported says why)
@@ -164,9 +164,9 @@ export function checkNow(prefixes) {
   return check(prefixes, { refresh: true });
 }
 
-/** The row Mud Hut reported for `id` in `prefix`, or undefined. */
-export function rowFor(prefix, id) {
-  return upd.prefixes[prefix]?.apps?.find((a) => a.id === id);
+/** The row Mud Hut reported for `id` in `prefix` (for `card`'s own year when given), or undefined. */
+export function rowFor(prefix, id, card) {
+  return pickRow(upd.prefixes[prefix]?.apps, { ...card, id });
 }
 
 // --- running an update -----------------------------------------------------------------------
