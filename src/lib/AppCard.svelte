@@ -182,8 +182,8 @@
 
   <div class="actions">
     <div class="launch-wrap">
-      <button class="primary {buttonClass}" onclick={onButtonClick} disabled={busy || launchLocked}
-              title={launchLocked ? uv.launchLock : ""}>
+      <button class="primary {buttonClass}" class:locked={launchLocked} onclick={onButtonClick}
+              disabled={busy || launchLocked} title={launchLocked ? uv.launchLock : ""}>
         {#if running}<span class="run-dot"></span>{/if}
         <span class="btn-label">{buttonLabel}</span>
         {#if busy}<span class="progress" style="width: {progress * 100}%"></span>{/if}
@@ -200,6 +200,10 @@
               onclick={() => onupdate?.(uv.button.action, urow)}>{uv.button.label}</button>
     {/if}
   </div>
+  {#if launchLocked && !uv.progress}
+    <!-- Another app in this prefix is updating: say why Launch is grey, not just in a tooltip. -->
+    <div class="card-note lock-note">{uv.launchLock}</div>
+  {/if}
   {#if uv.button?.reason && urow?.update?.can_update === false}
     <div class="card-note">{uv.button.reason}</div>
   {/if}
@@ -239,6 +243,8 @@
   .btn-label { position: relative; z-index: 1; }
   .progress { position: absolute; left: 0; bottom: 0; height: 3px; background: rgba(255,255,255,0.55); border-radius: 0 2px 2px 0; transition: width 0.4s ease; z-index: 0; }
   .primary:disabled { opacity: 0.7; cursor: default; }
+  /* Locked while another app in the prefix updates: plainly grey, so it never reads as clickable. */
+  .primary.locked { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.42); opacity: 1; }
   .primary.running { background: rgba(60,200,140,0.22); color: #6fe3b0; cursor: pointer; }
   .primary.failed { background: rgba(239,159,39,0.85); }
   .run-dot { width: 7px; height: 7px; border-radius: 50%; background: #3ce08c; animation: pulse 1.6s infinite; z-index: 1; }
@@ -259,6 +265,7 @@
   .card-note { font-size: 10.5px; color: rgba(255,255,255,0.55); margin-bottom: 10px; line-height: 1.45; }
   .card-note.warn { color: #f2c374; }
   .card-note.bad { color: #ff9b9b; }
+  .card-note.lock-note { margin: 8px 0 0; }
   .card-log { font-size: 10px; color: rgba(255,255,255,0.4); margin: -6px 0 10px; word-break: break-all; }
   .card-log .sel { user-select: text; -webkit-user-select: text; color: rgba(255,255,255,0.6); }
   /* 8px + a 1px border = Launch's 9px with none, so the two buttons line up. */
