@@ -45,7 +45,10 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 
 ### Setup & Updates
 
-- Set up, Update and Uninstall buttons, which run `neutron setup`, `neutron update` and `neutron uninstall`
+- Set up, Update Neutron and Uninstall buttons, which run `neutron setup`, `neutron update` and `neutron uninstall`
+- Adobe app updates (through Mud Hut): checked when Collider starts and once a day while it's open. Each app's card shows its update, and **Update all** updates every verified update in a prefix. Builds Neutron hasn't verified yet are marked "not yet verified" and need one more confirmation
+- A backup before each update, put back automatically if anything fails (it can be turned off in Preferences)
+- New yearly versions installed beside the old one, with the option to remove the old one
 
 -----
 
@@ -53,7 +56,6 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 
 - Lightroom (cloud) support
 - AMD and Intel GPU validation
-- Snapshot/rollback and holding Adobe updates until verified
 - Per-app GPU and color controls
 - Distro packages (AUR)
 
