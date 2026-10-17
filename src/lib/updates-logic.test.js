@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import {
   ukey, upToSize, joinNames, majorOf, updateAllPlan, cardView, prefixSummary, readyCount,
   dialogModel, dialogAction, outcomeFromAppResult, outcomeFromTerminal, outcomeFromLastUpdate,
-  outcomeFromInstall, outcomeNote, SPEECH_LABEL, SPEECH_HELP, pickRow,
+  outcomeFromInstall, outcomeNote, SPEECH_LABEL, SPEECH_HELP, pickRow, rowKey,
 } from "./updates-logic.js";
 import { readFileSync } from "node:fs";
 
@@ -333,4 +333,11 @@ test("a card takes the row of its own year when two yearly versions sit side by 
   assert.equal(pickRow([pr], { id: "premiere" }), pr);
   assert.equal(pickRow([pr], { id: "audition" }), undefined);
   assert.equal(pickRow(undefined, card), undefined);
+});
+
+test("two yearly versions of one app get distinct list keys and one id in Update all", () => {
+  const r25 = { id: "audition", installed: { year: 2025, dir: "Adobe Audition 2025" }, update: { to: "25.6.7.1", verified: true } };
+  const r26 = { id: "audition", installed: { year: 2026, dir: "Adobe Audition 2026" }, update: { to: "26.6.0.3", verified: true } };
+  assert.notEqual(rowKey(r25), rowKey(r26));
+  assert.deepEqual(dialogAction({ kind: "all", rows: [r25, r26] }, {}).apps, ["audition"]);
 });

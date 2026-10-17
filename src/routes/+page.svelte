@@ -11,7 +11,7 @@
            runUpdate, runYearlyInstall, targetLabels, anyJob, ukey } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
            cardView, joinNames, installedLabel, targetLabel, upToSize, prefixError,
-           SPEECH_APPS, SPEECH_LABEL, SPEECH_HELP } from "$lib/updates-logic.js";
+           SPEECH_APPS, SPEECH_LABEL, SPEECH_HELP, rowKey } from "$lib/updates-logic.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
@@ -1119,7 +1119,7 @@
                         {#if act.log}Log: <span class="sel">{act.log}</span>{/if}
                       </div>
                     {/if}
-                    {#each ps.apps ?? [] as row (row.id)}
+                    {#each ps.apps ?? [] as row (rowKey(row))}
                       {@const cv = cardView({ row, id: row.id, name: row.name, pstate: ps, job: upd.jobs[p.path],
                                                outcome: upd.outcomes[ukey(p.path, row.id)], neutronBusy })}
                       <div class="updv-row">

@@ -7,6 +7,8 @@
 
 /** Store key for one app in one prefix. Never the app id alone: two prefixes can hold the same app. */
 export const ukey = (prefix, id) => `${prefix}\u0000${id}`;
+/** A list key for one of Mud Hut's rows: one app can be installed in two yearly versions. */
+export const rowKey = (row) => `${row?.id}\u0000${row?.installed?.dir ?? row?.installed?.year ?? ""}`;
 
 /**
  * "up to 3.9 GB", "up to 187 MB"; null when Mud Hut gave no size. Decimal units, as Adobe and file
@@ -474,7 +476,7 @@ export function dialogAction(req, choices = {}) {
     // `--to` pins the build the user saw; it names one app's build, so only for one app.
     return { op: "update", apps, to: apps.length === 1 ? row.update?.to ?? null : null, allowUnverified: false };
   }
-  if (req.kind === "all") return { op: "update", apps: (req.rows ?? []).map((r) => r.id), to: null, allowUnverified: false };
+  if (req.kind === "all") return { op: "update", apps: [...new Set((req.rows ?? []).map((r) => r.id))], to: null, allowUnverified: false };
   if (req.kind === "unverified") return { op: "update", apps: [row.id], to: req.target?.to ?? null, allowUnverified: true };
   if (req.kind === "finish") return { op: "update", apps: [row.id], to: null, allowUnverified: false };
   if (req.kind === "yearly") {
