@@ -421,9 +421,13 @@ pub fn import_icon_set(dir: String) -> Result<u32, String> {
 
 /// The installable-app catalog (`mudhut apps [--source]`). Powers the install
 /// wizard's app picker.
+///
+/// Off the main thread: with `--source` Mud Hut scans a Windows tree or mounts a disc image,
+/// which takes seconds, and a synchronous command would freeze the window for all of it (see
+/// off_main).
 #[tauri::command]
-pub fn mudhut_apps(source: Option<String>) -> Result<Value, String> {
-    crate::mudhut::apps(source.as_deref()).map_err(estr)
+pub async fn mudhut_apps(source: Option<String>) -> Result<Value, String> {
+    off_main(move || crate::mudhut::apps(source.as_deref()).map_err(estr)).await
 }
 
 /// Install an app via Mud Hut, streaming progress to the frontend over `on_event`
