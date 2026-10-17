@@ -6,7 +6,11 @@
            listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
            selectPrefix, provisionPrefix, fontsCheck, fontsRepair } from "$lib/api.js";
   import AppCard from "$lib/AppCard.svelte";
-  import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks } from "$lib/updates.svelte.js";
+  import UpdateDialog from "$lib/UpdateDialog.svelte";
+  import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
+           runUpdate, runYearlyInstall, targetLabels, anyJob, ukey } from "$lib/updates.svelte.js";
+  import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
+           cardView, joinNames, installedLabel, targetLabel, aboutSize, SPEECH_LABEL } from "$lib/updates-logic.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount, onDestroy } from "svelte";
@@ -47,6 +51,17 @@
   // What would be cut off by closing now, one plain sentence each.
   function busyJobs() {
     const jobs = [];
+    for (const [p, j] of Object.entries(upd.jobs)) {
+      const pname = prefixes.find((x) => x.path === p)?.name ?? p;
+      if (j.kind === "install") {
+        jobs.push(`${j.label} is installing in “${pname}”. If you close Collider now, the install can ` +
+                  `stop partway, and you would need to start it again.`);
+      } else {
+        const names = joinNames(j.apps.map((id) => upd.prefixes[p]?.apps?.find((a) => a.id === id)?.name ?? id));
+        jobs.push(`${names} ${j.apps.length === 1 ? "is" : "are"} updating in “${pname}”. If you close ` +
+                  `Collider, the update keeps going, and Collider shows it again when you open it.`);
+      }
+    }
     if (mhInstall.phase === "installing") {
       jobs.push(`${mhInstall.name} is installing. If you close Collider now, the install can stop ` +
                 `partway, and you would need to start it again.`);
@@ -138,8 +153,8 @@
     mhScan.phase === "done" && mhScan.kind !== null &&
     (mhMethod === "windows" || mhMethod === "offline") && mhScan.kind !== mhMethod);
 
-  function openMudHut() { view = "mudhut"; mhMethod = null; resetInstall(); resetSource(); }
-  function backToMethods() { mhMethod = null; resetInstall(); resetSource(); }
+  function openMudHut() { view = "mudhut"; mhMethod = null; mhConfirm = null; resetInstall(); resetSource(); }
+  function backToMethods() { mhMethod = null; mhConfirm = null; resetInstall(); resetSource(); }
   function resetInstall() {
     mhInstall = { phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null };
   }
@@ -198,14 +213,24 @@
     }
   }
 
-  async function startInstall(app) {
+  // Premiere Pro's speech-to-text languages (about 13.8 GB) are a choice, off by default as in
+  // Creative Cloud (DECISIONS C70), so a Premiere download stops at a confirm step first.
+  let mhConfirm = $state(null);      // the catalog app awaiting that choice
+  let mhSpeech = $state(false);
+  function pickInstall(app) {
+    if (mhMethod === "download" && app.id === "premiere") { mhConfirm = app; mhSpeech = false; }
+    else startInstall(app);
+  }
+
+  async function startInstall(app, { speechPacks = false } = {}) {
+    mhConfirm = null;
     const method = mhMethod;
     // download resolves from Adobe; windows/offline install from the scanned source.
     const source = method === "download" ? null : mhSource.trim();
     mhInstall = { phase: "installing", app: app.id, name: app.name, stage: "starting", pct: 0, msg: "", error: null };
     try {
       const r = await installApp({
-        app: app.id, method, prefix: mhTarget, source,
+        app: app.id, method, prefix: mhTarget, source, speechPacks,
         onEvent: (ev) => {
           if (ev.event === "progress") {
             if (ev.stage) mhInstall.stage = ev.stage;
@@ -425,6 +450,120 @@
   onDestroy(stopUpdateChecks);
 
   const validPrefixPaths = () => prefixes.filter((p) => p.valid).map((p) => p.path);
+
+  // --- Adobe app updates: the dialog and its entry points --------------------------------------
+  // Every entry point (card, Apps header, Mud Hut's Updates view, the Prefixes line) builds a
+  // request and opens the ONE dialog; confirming runs Mud Hut through the shared store.
+  let udReq = $state(null);
+  const prefixName = (p) => prefixes.find((x) => x.path === p)?.name ?? p;
+  const neutronBusy = $derived(nrun.phase === "running");
+
+  /** Open the dialog for `action` on `row` in prefix `p`:
+   *  update | unverified | unverified-newer | yearly | finish | all. */
+  function openUpdate(p, action, row = null) {
+    const apps = upd.prefixes[p]?.apps ?? [];
+    if (action !== "all" && !row) return;   // Mud Hut no longer reports that app here
+    if (action === "all") {
+      const plan = updateAllPlan(apps);
+      if (!plan.include.length) return;
+      udReq = { kind: "all", prefix: p, rows: plan.include, excluded: plan.exclude };
+    } else if (action === "update") {
+      const related = (row.related ?? []).map((id) => apps.find((a) => a.id === id))
+        .filter((r) => r && hasVerifiedUpdate(r));
+      udReq = { kind: "update", prefix: p, row, related };
+    } else if (action === "unverified") {
+      udReq = { kind: "unverified", prefix: p, row, target: row.update?.verified === true ? row.newer_unverified : row.update };
+    } else if (action === "unverified-newer") {
+      udReq = { kind: "unverified", prefix: p, row, target: row.newer_unverified };
+    } else if (action === "yearly" || action === "finish") {
+      udReq = { kind: action, prefix: p, row };
+    }
+  }
+
+  function onUpdateConfirm(a) {
+    const req = udReq;
+    udReq = null;
+    if (!req || !a) return;
+    if (a.op === "install") {
+      runYearlyInstall({ prefix: req.prefix, app: a.app, version: a.version, label: a.label,
+                         removePrevious: a.removePrevious, speechPacks: a.speechPacks });
+      return;
+    }
+    const rows = req.kind === "all" ? req.rows
+      : [req.row, ...(req.related ?? []).filter((r) => a.apps.includes(r.id))];
+    runUpdate({ prefix: req.prefix, apps: a.apps, to: a.to, allowUnverified: a.allowUnverified,
+                noSnapshot: settings.adobe_update_snapshot === false,
+                labels: targetLabels(rows, req.kind === "unverified" ? req.target : null) });
+  }
+
+  // The Apps header's "Update all": the selected prefix's verified point updates, when there are
+  // two or more (one is the card's own button) and nothing already holds the prefix.
+  const allPlan = $derived(prefix ? updateAllPlan(upd.prefixes[prefix]?.apps) : { include: [], exclude: [] });
+  const prefixActive = (p) => activeUpdate(upd.jobs[p], upd.prefixes[p]);
+  // The nav count: verified point updates ready across every registered prefix.
+  const readyN = $derived(upd.supported ? readyCount(upd.prefixes) : 0);
+  // Mud Hut's own per-prefix sentence on the Prefixes tab.
+  const summaryFor = (p) => prefixSummary({
+    pstate: upd.prefixes[p], job: upd.jobs[p],
+    outcomes: Object.fromEntries((upd.prefixes[p]?.apps ?? []).map((a) => [a.id, upd.outcomes[ukey(p, a.id)]])),
+  });
+  function onSummaryAction(p, act) {
+    if (!act) return;
+    if (act.kind === "view") { openUpdates(); return; }
+    const row = act.id ? upd.prefixes[p]?.apps?.find((a) => a.id === act.id) : null;
+    openUpdate(p, act.kind, row);
+  }
+  function openUpdates() { view = "mudhut"; mhMethod = "updates"; mhConfirm = null; resetInstall(); resetSource(); }
+
+  // "Last checked Oct 16, 2:02 PM".
+  function when(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  }
+  // A card closed its app: what is open in that prefix changed, so re-read it (locally).
+  const onAppExit = () => { if (prefix) check([prefix], { offline: true, partial: true, skipIfBusy: true }); };
+
+  // One app's line in Mud Hut's Updates view (Mud Hut's facts, in words).
+  function rowStatus(row) {
+    const u = row.update;
+    if (u && u.verified === true) {
+      const size = aboutSize(u.download_bytes);
+      return `Update to ${targetLabel(u)}${size ? ` · ${size}` : ""}`;
+    }
+    if (u) return `${targetLabel(u)} is available · not yet verified by Neutron`;
+    return "Up to date";
+  }
+  // What else a row offers besides its main button: a newer build Neutron has not verified, and a
+  // new yearly version.
+  function rowExtras(row) {
+    const out = [];
+    if (row.newer_unverified && row.update?.to !== row.newer_unverified.to) {
+      out.push({ text: `Also available: ${targetLabel(row.newer_unverified)}, not yet verified by Neutron`,
+                 label: `Update to ${targetLabel(row.newer_unverified)}…`, action: "unverified-newer" });
+    }
+    if (row.new_major && row.update) {
+      out.push({ text: `${row.name} ${row.new_major.label ?? row.new_major.year} is available, a new yearly version`,
+                 label: `Install ${row.new_major.label ?? row.new_major.year}…`, action: "yearly" });
+    } else if (row.new_major) {
+      out.push({ text: `${row.name} ${row.new_major.label ?? row.new_major.year} is available, a new yearly version`,
+                 label: null, action: null });
+    }
+    return out;
+  }
+  const lockFor = (p) => {
+    const act = prefixActive(p);
+    return act ? waitSentence(act, upd.prefixes[p]) : neutronBusy ? "Wait for the Neutron update to finish." : null;
+  };
+
+  async function setUpdateSetting(key, value) {
+    settings[key] = value;
+    await saveSettings();
+    // Turned back on: check now rather than at the next tick (Mud Hut's cache still decides
+    // whether Adobe is contacted).
+    if (key === "adobe_update_check" && value) check(validPrefixPaths(), { skipIfBusy: true });
+  }
 
   // --- prefix registry actions ---------------------------------------------------------
   async function loadPrefixes() {
@@ -646,7 +785,9 @@
            onclick={() => (view = "apps")}>All apps</div>
       <div class="nav-section">Tools</div>
       <div class="nav-item" class:active={view === "mudhut"} role="button" tabindex="0"
-           onclick={openMudHut}>Mud Hut</div>
+           onclick={openMudHut}>Mud Hut
+        {#if readyN}<span class="nav-count" title="Adobe app updates ready to install">{readyN}</span>{/if}
+      </div>
       <div class="nav-item" class:active={view === "prefixes"} role="button" tabindex="0"
            onclick={openPrefixes}>Prefixes</div>
       <div class="nav-item" class:active={view === "preferences"} role="button" tabindex="0"
@@ -685,7 +826,14 @@
           {/if}
         </div>
       </div>
-      <button class="ghost" onclick={refresh} disabled={refreshing}>↻ Refresh</button>
+      <div class="head-actions">
+        {#if prefixValid && allPlan.include.length > 1 && !prefixActive(prefix)}
+          <button class="ghost upd-all" disabled={neutronBusy}
+                  title={neutronBusy ? "Wait for the Neutron update to finish." : "Update every app that has a verified update"}
+                  onclick={() => openUpdate(prefix, "all")}>Update all ({allPlan.include.length})</button>
+        {/if}
+        <button class="ghost" onclick={refresh} disabled={refreshing}>↻ Refresh</button>
+      </div>
     </header>
 
     <div class="scroll">
@@ -747,7 +895,8 @@
     <section class="grid">
       <!-- One widget per installed app, tinted to its brand color. -->
       {#each apps as app (app.id)}
-        <AppCard {app} {prefix} {info} />
+        <AppCard {app} {prefix} {info} {neutronBusy}
+                 onupdate={(action, row) => openUpdate(prefix, action, row)} onexit={onAppExit} />
       {/each}
       {#if apps.length === 0}
         <div class="empty-apps">No apps detected in this prefix — hit ↻ Refresh.</div>
@@ -773,6 +922,8 @@
 
     <section class="plist">
       {#each prefixes as p (p.path)}
+        {@const sm = summaryFor(p.path)}
+        {@const plock = prefixActive(p.path) ? waitSentence(prefixActive(p.path), upd.prefixes[p.path]) : null}
         <div class="prow" class:sel={p.selected} class:bad={!p.valid}>
           <div class="pmain">
             {#if renaming === p.path}
@@ -810,6 +961,13 @@
                   {:else}{fonts[p.path].summary}{/if}
                 </span>
               </div>
+              {#if upd.supported}
+                <div class="pfonts">
+                  <span class="dot {sm.dot}"></span>
+                  <span class="pfonts-label">Updates</span>
+                  <span class="pfonts-msg">{sm.text}</span>
+                </div>
+              {/if}
             {/if}
           </div>
           <div class="pacts">
@@ -817,13 +975,21 @@
               <button class="primary sm" onclick={() => useprefix(p.path)}>Use</button>
             {/if}
             <button class="ghost sm" onclick={() => startRename(p)}>Rename</button>
-            <button class="ghost sm" disabled={provisioning !== null || !p.valid}
-                    title="Run the Neutron provisioning recipe (wineboot, registry, fonts, DXVK). Takes a few minutes."
+            {#if p.valid && upd.supported && sm.action}
+              <button class="ghost sm" disabled={neutronBusy && sm.action.kind !== "view"}
+                      title={neutronBusy ? "Wait for the Neutron update to finish." : ""}
+                      onclick={() => onSummaryAction(p.path, sm.action)}>
+                {sm.action.kind === "all" ? "Update all" : sm.action.kind === "update" ? "Update"
+                  : sm.action.kind === "finish" ? "Finish update" : "View updates"}
+              </button>
+            {/if}
+            <button class="ghost sm" disabled={provisioning !== null || !p.valid || !!plock}
+                    title={plock ?? "Run the Neutron provisioning recipe (wineboot, registry, fonts, DXVK). Takes a few minutes."}
                     onclick={() => runProvision(p.path)}>
               {provisioning === p.path ? "Provisioning…" : "Provision"}
             </button>
             {#if p.valid && fonts[p.path] && fonts[p.path].status !== "good"}
-              <button class="ghost sm" disabled={repairingFonts !== null || provisioning !== null
+              <button class="ghost sm" disabled={repairingFonts !== null || provisioning !== null || !!plock
                                                  || (fonts[p.path].apps_running?.length ?? 0) > 0}
                       title={(fonts[p.path].apps_running?.length ?? 0) > 0
                                ? `Close ${fonts[p.path].apps_running.join(", ")} first — apps read fonts at startup`
@@ -870,6 +1036,7 @@
         <div class="title">Mud Hut</div>
         <div class="subtitle">
           {#if mhMethod === null}Install Adobe apps · choose how to install
+          {:else if mhMethod === "updates"}Update installed apps
           {:else if mhMethod === "download"}Download from Adobe
           {:else if mhMethod === "windows"}Copy from a Windows install
           {:else}Install from an offline package{/if}
@@ -892,6 +1059,115 @@
             <div class="method-h">Download from Adobe</div>
             <div class="method-d">Fetch genuine app files straight from Adobe. <b>No sign-in to install</b> — you sign in inside the app, the same as on Windows.</div>
           </button>
+          <button class="method-card" onclick={openUpdates}>
+            <div class="method-h">Update installed apps{readyN ? ` (${readyN})` : ""}</div>
+            <div class="method-d">See which of your Adobe apps have newer versions, and update them. <b>Nothing updates until you choose to.</b></div>
+          </button>
+        </section>
+      {:else if mhMethod === "updates"}
+        <!-- Mud Hut's check, prefix by prefix. Every fact and sentence here is Mud Hut's
+             (`mudhut check-updates`); the buttons open the one update dialog. -->
+        <section class="mudhut">
+          <button class="link-back" onclick={backToMethods}>← Back to install options</button>
+          <div class="updv">
+            <div class="updv-head">
+              {#if !upd.supported}
+                <div class="updv-quiet">{upd.unsupported === "missing"
+                  ? "Set up Neutron to get Adobe update checks."
+                  : "Update Neutron to get Adobe update checks."}</div>
+              {:else}
+                <div class="updv-quiet">
+                  {#if upd.refreshing}Checking with Adobe…
+                  {:else if upd.lastReachedAt}Last checked {when(upd.lastReachedAt)}
+                  {:else}Not checked with Adobe yet{/if}
+                </div>
+                <button class="ghost sm" disabled={upd.refreshing || !validPrefixPaths().length}
+                        onclick={() => checkNow(validPrefixPaths())}>Check now</button>
+              {/if}
+            </div>
+            {#if upd.supported && upd.lastNetwork && !upd.lastNetwork.online}
+              <div class="updv-quiet">{upd.lastNetwork.feed_error ?? "Couldn't reach Adobe."} This shows what Mud Hut last knew.</div>
+            {/if}
+            {#if upd.supported && upd.failed}
+              <div class="updv-quiet">Update check failed: {upd.failed}</div>
+            {/if}
+
+            {#if upd.supported}
+              {#each prefixes.filter((x) => x.valid) as p (p.path)}
+                {@const ps = upd.prefixes[p.path]}
+                {@const act = prefixActive(p.path)}
+                {@const plan = updateAllPlan(ps?.apps)}
+                {@const lock = lockFor(p.path)}
+                <div class="updv-prefix">
+                  <div class="updv-pname">{p.name} <span class="updv-ppath">{p.path}</span></div>
+                  {#if !ps}
+                    <div class="updv-quiet">Not checked yet</div>
+                  {:else if ps.ok === false}
+                    <div class="updv-quiet">{ps.message ?? "Couldn't check this prefix."}</div>
+                  {:else}
+                    {#if act && !act.ours}
+                      <div class="updv-quiet">
+                        An update is running{act.startedAt ? ` (started ${when(act.startedAt)})` : ""}.
+                        Collider follows it until it finishes.
+                        {#if act.log}Log: <span class="sel">{act.log}</span>{/if}
+                      </div>
+                    {/if}
+                    {#each ps.apps ?? [] as row (row.id)}
+                      {@const cv = cardView({ row, id: row.id, name: row.name, pstate: ps, job: upd.jobs[p.path],
+                                               outcome: upd.outcomes[ukey(p.path, row.id)], neutronBusy })}
+                      <div class="updv-row">
+                        <div class="updv-main">
+                          <div class="updv-name">{row.name} <span class="updv-ver">{installedLabel(row)}</span></div>
+                          {#if cv.progress}
+                            <div class="prov">
+                              <div class="prov-bar"><div class="prov-fill" style="width: {cv.progress.pct ?? 100}%"></div></div>
+                              <div class="prov-msg">{cv.progress.pct !== null ? `${cv.progress.pct}% · ` : ""}{cv.progress.text}</div>
+                            </div>
+                          {:else}
+                            <div class="updv-status">{rowStatus(row)}</div>
+                            {#each rowExtras(row) as x}
+                              <div class="updv-status muted">{x.text}</div>
+                            {/each}
+                          {/if}
+                          {#if cv.button?.reason && row.update?.can_update === false}
+                            <div class="updv-note">{cv.button.reason}</div>
+                          {/if}
+                          {#if cv.note}<div class="updv-note {cv.noteCls}">{cv.note}</div>{/if}
+                          {#if cv.log}<div class="updv-note">Log: <span class="sel">{cv.log}</span></div>{/if}
+                        </div>
+                        <div class="updv-acts">
+                          {#if cv.button}
+                            <button class="ghost sm" disabled={cv.button.disabled} title={cv.button.reason ?? ""}
+                                    onclick={() => openUpdate(p.path, cv.button.action, row)}>{cv.button.label}</button>
+                          {/if}
+                          {#if !cv.progress}
+                            {#each rowExtras(row) as x}
+                              {#if x.label}
+                                <button class="ghost sm" disabled={!!lock} title={lock ?? ""}
+                                        onclick={() => openUpdate(p.path, x.action, row)}>{x.label}</button>
+                              {/if}
+                            {/each}
+                          {/if}
+                        </div>
+                      </div>
+                    {/each}
+                    {#if !(ps.apps ?? []).length}
+                      <div class="updv-quiet">No Adobe apps that Mud Hut can update were found here.</div>
+                    {/if}
+                    {#if plan.include.length > 1 && !act}
+                      <div class="updv-all">
+                        <button class="primary sm" disabled={!!lock} title={lock ?? ""}
+                                onclick={() => openUpdate(p.path, "all")}>Update all in {p.name} ({plan.include.length})</button>
+                      </div>
+                    {/if}
+                  {/if}
+                </div>
+              {/each}
+              {#if !prefixes.some((x) => x.valid)}
+                <div class="updv-quiet">No prefixes yet. Install an app first.</div>
+              {/if}
+            {/if}
+          </div>
         </section>
       {:else}
         <!-- download / windows / offline — the install phases (progress / done /
@@ -927,6 +1203,19 @@
               <div class="banner err">{mhInstall.error}</div>
               <button class="primary" onclick={resetInstall}>Back to apps</button>
             </div>
+          {:else if mhConfirm}
+            <div class="signin-card">
+              <div class="signin-h">Install {mhConfirm.name}</div>
+              <label class="speech-opt">
+                <input type="checkbox" bind:checked={mhSpeech} />
+                <span>{SPEECH_LABEL}
+                  <span class="speech-help">Premiere Pro uses these to make captions from speech.
+                    Creative Cloud doesn't install them by default either.</span>
+                </span>
+              </label>
+              <button class="primary" onclick={() => startInstall(mhConfirm, { speechPacks: mhSpeech })}>Install</button>
+              <button class="ghost" onclick={() => (mhConfirm = null)}>Back</button>
+            </div>
           {:else if mhMethod === "download"}
             <div class="signin-card">
               <div class="signin-h">Choose an app to install</div>
@@ -937,7 +1226,7 @@
               </div>
               <div class="mh-applist">
                 {#each mhCatalog as a}
-                  <button class="mh-app" onclick={() => startInstall(a)}>
+                  <button class="mh-app" onclick={() => pickInstall(a)}>
                     <span class="mh-app-badge">{a.sap}</span>
                     <span class="mh-app-name">{a.name}</span>
                     <span class="mh-app-go">Install →</span>
@@ -1132,6 +1421,52 @@
         </div>
 
         <div class="pref-group">
+          <div class="pref-label">Adobe app updates</div>
+          <div class="pref-desc">
+            While it is open, Collider checks with Adobe about once a day which versions of your
+            Adobe apps are available. It sends no account or file information. Nothing installs
+            until you choose to update.
+          </div>
+          {#if !upd.supported}
+            <div class="pref-desc warn">{upd.unsupported === "missing"
+              ? "Set up Neutron to get Adobe update checks."
+              : "Update Neutron to get Adobe update checks."}</div>
+          {:else}
+            <label class="radio">
+              <input type="checkbox" checked={settings.adobe_update_check !== false}
+                     onchange={(e) => setUpdateSetting("adobe_update_check", e.currentTarget.checked)} />
+              Check for Adobe app updates
+            </label>
+            <div class="pref-row" style="margin-top:10px;">
+              <span class="muted">
+                {#if upd.refreshing}Checking with Adobe…
+                {:else if upd.lastReachedAt}Last checked {when(upd.lastReachedAt)}
+                {:else}Not checked with Adobe yet{/if}
+              </span>
+              <button class="ghost-btn" disabled={upd.refreshing || !validPrefixPaths().length}
+                      onclick={() => checkNow(validPrefixPaths())}>Check now</button>
+            </div>
+            {#if upd.lastNetwork && !upd.lastNetwork.online}
+              <div class="pref-desc muted" style="margin:8px 0 0;">{upd.lastNetwork.feed_error ?? "Couldn't reach Adobe."}
+                Collider shows what Mud Hut last knew.</div>
+            {/if}
+            {#if upd.failed}
+              <div class="pref-desc muted" style="margin:8px 0 0;">Update check failed: {upd.failed}</div>
+            {/if}
+          {/if}
+          <label class="radio" style="margin-top:14px;">
+            <input type="checkbox" checked={settings.adobe_update_snapshot !== false}
+                   onchange={(e) => setUpdateSetting("adobe_update_snapshot", e.currentTarget.checked)} />
+            Keep a backup copy before updating (uses disk space)
+          </label>
+          <div class="pref-desc muted" style="margin:6px 0 0;">
+            If an update fails, the backup copy is put back automatically. Neutron recommends the
+            versions it has verified; newer ones show as “not yet verified”, and you can still
+            update to them.
+          </div>
+        </div>
+
+        <div class="pref-group">
           <div class="pref-label">Neutron</div>
           <div class="pref-desc">
             {#if vers?.cli}
@@ -1157,9 +1492,13 @@
               {#if uninstalled.prefixes_not_removed?.length}Your prefixes were kept.{/if}</div>
           {/if}
           <div class="pref-row">
+            <!-- "Update Neutron", not "Update": Adobe app updates have their own buttons. The two
+                 never run together here (Neutron's update re-provisions prefixes); Mud Hut's prefix
+                 lock is what keeps them apart for real. -->
             <button class="ghost-btn" onclick={() => runNeutron("update")}
-                    disabled={!vers?.cli || nrun.phase === "running"}>
-              {nrun.phase === "running" && nrun.kind === "update" ? "Updating…" : "Update"}
+                    disabled={!vers?.cli || nrun.phase === "running" || anyJob()}
+                    title={anyJob() ? "Wait for the Adobe app update to finish." : ""}>
+              {nrun.phase === "running" && nrun.kind === "update" ? "Updating…" : "Update Neutron"}
             </button>
             <button class="ghost-btn" onclick={() => { confirmUninstall = true; uninstallPrefixes = false; }}
                     disabled={!vers?.cli || nrun.phase === "running"}>Uninstall…</button>
@@ -1195,6 +1534,12 @@
     </footer>
   </main>
   </div>
+
+  {#if udReq}
+    <UpdateDialog req={udReq} prefixName={prefixName(udReq.prefix)}
+                  snapshot={settings.adobe_update_snapshot !== false}
+                  onconfirm={onUpdateConfirm} oncancel={() => (udReq = null)} />
+  {/if}
 
   {#if closeGuard}
     <div class="modal-back">
@@ -1420,6 +1765,40 @@
   .found-row:hover { background: rgba(255,255,255,0.06); }
   .found-name { font-size: 12.5px; font-weight: 600; }
   .found-path { font-size: 10.5px; color: rgba(255,255,255,0.42); }
+
+  /* --- Adobe app updates ------------------------------------------------------------- */
+  .head-actions { display: flex; gap: 8px; align-items: center; }
+  .ghost.upd-all { border-color: rgba(239,159,39,0.35); color: #f2c374; background: rgba(239,159,39,0.08); }
+  .ghost:disabled { opacity: 0.45; cursor: default; }
+  .nav-count { display: inline-block; min-width: 16px; margin-left: 6px; padding: 0 5px; border-radius: 9px;
+               font-size: 10px; line-height: 16px; text-align: center; font-weight: 600;
+               background: rgba(239,159,39,0.2); color: #f2c374; }
+  .updv { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+  .updv-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .updv-quiet { font-size: 11.5px; color: rgba(255,255,255,0.45); line-height: 1.5; }
+  .updv-prefix { padding: 13px 15px; border-radius: 11px; border: 1px solid rgba(255,255,255,0.08);
+                 background: rgba(255,255,255,0.03); display: flex; flex-direction: column; gap: 8px; }
+  .updv-pname { font-size: 13.5px; font-weight: 600; }
+  .updv-ppath { font-size: 11px; font-weight: 400; color: rgba(255,255,255,0.4); margin-left: 6px; }
+  .updv-row { display: flex; align-items: center; gap: 12px; padding: 8px 0;
+              border-top: 1px solid rgba(255,255,255,0.05); }
+  .updv-main { flex: 1; min-width: 0; }
+  .updv-name { font-size: 12.5px; font-weight: 600; }
+  .updv-ver { font-weight: 400; color: rgba(255,255,255,0.4); margin-left: 4px; font-size: 11.5px; }
+  .updv-status { font-size: 11.5px; color: rgba(255,255,255,0.65); margin-top: 2px; }
+  .updv-status.muted { color: rgba(255,255,255,0.4); }
+  .updv-note { font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 3px; line-height: 1.45; }
+  .updv-note.warn { color: #f2c374; }
+  .updv-note.bad { color: #ff9b9b; }
+  .updv-acts { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; flex-shrink: 0; }
+  .updv-acts button { white-space: nowrap; }
+  .updv-all { display: flex; justify-content: flex-end; padding-top: 4px; }
+  .sel { user-select: text; -webkit-user-select: text; color: rgba(255,255,255,0.65); word-break: break-all; }
+  .signin-d.warn { color: #f0b84a; }
+  .speech-opt { display: flex; align-items: flex-start; gap: 8px; text-align: left; font-size: 12.5px;
+                color: rgba(255,255,255,0.85); cursor: pointer; line-height: 1.45; }
+  .speech-opt input { accent-color: #9a5cf5; margin-top: 3px; }
+  .speech-help { display: block; font-size: 11.5px; color: rgba(255,255,255,0.45); }
 
   /* --- modal dialogs (close guard) --------------------------------------------------- */
   .modal-back { position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,0.55);
