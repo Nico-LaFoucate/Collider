@@ -165,7 +165,7 @@
     const source = method === "download" ? null : mhSource.trim();
     mhInstall = { phase: "installing", app: app.id, name: app.name, stage: "starting", pct: 0, msg: "", error: null };
     try {
-      await installApp({
+      const r = await installApp({
         app: app.id, method, prefix: mhTarget, source,
         onEvent: (ev) => {
           if (ev.event === "progress") {
@@ -177,7 +177,15 @@
           }
         },
       });
-      mhInstall = { ...mhInstall, phase: "done" };
+      // A run can end with its result AND a non-zero exit (`exit` is then set on it). `ok:false`
+      // is a failure in Mud Hut's own words; anything else installed, possibly with a note.
+      if (r?.ok === false) {
+        mhInstall = { ...mhInstall, phase: "error",
+                      error: r.message ?? r.reason ?? "The install did not finish." };
+        return;
+      }
+      mhInstall = { ...mhInstall, phase: "done",
+                    note: r?.exit ? (r.message ?? r.reason ?? null) : null };
       // Point the Apps view at the freshly-installed prefix AND persist it — an install into a
       // non-default location used to be forgotten on restart, leaving the library empty.
       await adoptPrefix(mhTarget);
@@ -861,6 +869,7 @@
             <div class="signin-card">
               <div class="signin-h">✓ {mhInstall.name} installed</div>
               <div class="signin-d">Installed into {mhTarget}. It now appears in <b>Apps</b> — launch it there and sign in inside the app, the same as on Windows.</div>
+              {#if mhInstall.note}<div class="signin-d warn">{mhInstall.note}</div>{/if}
               <button class="primary" onclick={() => { view = "apps"; }}>Go to Apps</button>
               <button class="ghost" onclick={resetInstall}>Install another</button>
             </div>
