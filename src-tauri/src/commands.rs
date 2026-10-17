@@ -446,17 +446,59 @@ pub async fn check_adobe_updates(
 /// Install an app via Mud Hut, streaming progress to the frontend over `on_event`
 /// (each Mud Hut `progress`/`note`/`result`/`error` NDJSON event). Runs on a
 /// blocking thread so the (minutes-long) install never freezes the UI. Resolves
-/// with the terminal `result` object, or rejects with the error message.
+/// with the terminal `result` object (with `exit` added if Mud Hut exited non-zero after it), or
+/// rejects with the error message.
+///
+/// `version` installs a specific yearly version (`--version MAJOR`), `speech_packs` adds Premiere
+/// Pro's speech-to-text languages, `remove_previous` removes the previous yearly version after the
+/// new one installs. All three are the user's choices in the dialog; absent means off.
 #[tauri::command]
 pub async fn install_app(
     app: String,
     method: String,
     prefix: String,
     source: Option<String>,
+    version: Option<String>,
+    speech_packs: Option<bool>,
+    remove_previous: Option<bool>,
     on_event: tauri::ipc::Channel<Value>,
 ) -> Result<Value, String> {
+    let opts = crate::mudhut::InstallOpts {
+        version,
+        speech_packs: speech_packs.unwrap_or(false),
+        remove_previous: remove_previous.unwrap_or(false),
+    };
     tauri::async_runtime::spawn_blocking(move || {
-        crate::mudhut::install_stream(&app, &method, &prefix, source.as_deref(), |ev| {
+        crate::mudhut::install_stream(&app, &method, &prefix, source.as_deref(), &opts, |ev| {
+            let _ = on_event.send(ev);
+        })
+        .map_err(estr)
+    })
+    .await
+    .map_err(estr)?
+}
+
+/// Update Adobe apps in one prefix (`mudhut update`), streaming every event to `on_event`.
+/// Resolves with Mud Hut's terminal object AS DATA whatever the outcome (see
+/// mudhut::update_stream): the `result` (`exit` added when non-zero), or the `error` with
+/// `ok:false` (refused because an app is running, no network, no disk space, ...). Rejects only
+/// when Mud Hut could not be run or said nothing at all.
+///
+/// `apps` are the ones the user confirmed (never `--all`); `to` is the exact build they chose (one
+/// app); `allow_unverified` follows their "Update anyway"; `no_snapshot` follows the Preferences
+/// backup setting.
+#[tauri::command]
+pub async fn update_adobe_apps(
+    prefix: String,
+    apps: Vec<String>,
+    to: Option<String>,
+    allow_unverified: bool,
+    no_snapshot: bool,
+    on_event: tauri::ipc::Channel<Value>,
+) -> Result<Value, String> {
+    let opts = crate::mudhut::UpdateOpts { to, allow_unverified, no_snapshot };
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::mudhut::update_stream(&prefix, &apps, &opts, |ev| {
             let _ = on_event.send(ev);
         })
         .map_err(estr)

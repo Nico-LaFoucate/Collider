@@ -278,9 +278,22 @@ pub fn install_stream(
     method: &str,
     prefix: &str,
     source: Option<&str>,
+    opts: &InstallOpts,
     mut on_event: impl FnMut(Value),
 ) -> anyhow::Result<Value> {
-    install_stream_with(&mudhut_bin(), app, method, prefix, source, &mut on_event)
+    install_stream_with(&mudhut_bin(), app, method, prefix, source, opts, &mut on_event)
+}
+
+/// The install choices the user can make beyond app, method and target.
+#[derive(Debug, Default, Clone)]
+pub struct InstallOpts {
+    /// `--version MAJOR`: a specific yearly version (e.g. the 2027 apps) instead of the newest.
+    pub version: Option<String>,
+    /// `--speech-packs`: also install Premiere Pro's speech-to-text languages (about 13.8 GB).
+    /// Off unless the user asks, as in Creative Cloud (DECISIONS C70).
+    pub speech_packs: bool,
+    /// `--remove-previous`: remove the previous yearly version once the new one is installed.
+    pub remove_previous: bool,
 }
 
 fn install_stream_with(
@@ -289,6 +302,7 @@ fn install_stream_with(
     method: &str,
     prefix: &str,
     source: Option<&str>,
+    opts: &InstallOpts,
     on_event: &mut dyn FnMut(Value),
 ) -> anyhow::Result<Value> {
     let mut args: Vec<String> = vec![
@@ -299,6 +313,16 @@ fn install_stream_with(
     if let Some(s) = source {
         args.push("--source".into());
         args.push(s.into());
+    }
+    if let Some(v) = &opts.version {
+        args.push("--version".into());
+        args.push(v.clone());
+    }
+    if opts.speech_packs {
+        args.push("--speech-packs".into());
+    }
+    if opts.remove_previous {
+        args.push("--remove-previous".into());
     }
     let s = stream_with(bin, &args, true, on_event)?;
     if let Some(e) = s.error {
@@ -315,6 +339,89 @@ fn install_stream_with(
         return Err(anyhow!("mudhut install exited with {} and reported no result", exit_label(s.exit)));
     }
     Err(anyhow!("mudhut install finished without a result"))
+}
+
+/// The choices behind one `mudhut update` run, all made by the user in the update dialog.
+#[derive(Debug, Default, Clone)]
+pub struct UpdateOpts {
+    /// `--to BUILD`: the exact build the user saw and chose (one app only).
+    pub to: Option<String>,
+    /// `--allow-unverified`: the user chose a build Neutron has not verified, after the dialog
+    /// told them so.
+    pub allow_unverified: bool,
+    /// `--no-snapshot`: the user turned off "Keep a backup copy before updating".
+    pub no_snapshot: bool,
+}
+
+fn update_args(prefix: &str, apps: &[String], opts: &UpdateOpts) -> Vec<String> {
+    let mut args: Vec<String> = vec!["update".into(), "--prefix".into(), prefix.into()];
+    args.extend(apps.iter().cloned());
+    if let Some(t) = &opts.to {
+        args.push("--to".into());
+        args.push(t.clone());
+    }
+    if opts.allow_unverified {
+        args.push("--allow-unverified".into());
+    }
+    if opts.no_snapshot {
+        args.push("--no-snapshot".into());
+    }
+    args
+}
+
+/// `mudhut --json update --prefix P APP ...`, STREAMED: every `progress` (with its `app`), `note`
+/// and per-app `app_result` goes to `on_event` as it arrives.
+///
+/// Every outcome Mud Hut reports comes back as DATA, so the page can tell them apart:
+/// - the terminal `result` (`{ok, prefix, apps}`), even on a non-zero exit (one app of several
+///   failed: exit 1; failed and put back: 7; failed and could not be put back: 8), with `exit`
+///   added when non-zero;
+/// - the terminal `error` (refused because an app is running: exit 3; network: 5; disk: 6; ...)
+///   with `ok:false` and `exit` added, keeping Mud Hut's `code`, `message`, `apps_running` and
+///   `prefix_changed`, so "nothing happened, close Premiere Pro first" is not shown as a failure.
+/// Only a run that produced neither (Mud Hut could not start, or died without a word) is an Err.
+///
+/// It runs in its own session, and Mud Hut's update keeps going if Collider is closed (it writes
+/// its events to `<prefix>/.mudhut/update.log` and its state for `check-updates` to report).
+/// Collider never passes `--all`: it lists the apps the user confirmed.
+pub fn update_stream(
+    prefix: &str,
+    apps: &[String],
+    opts: &UpdateOpts,
+    mut on_event: impl FnMut(Value),
+) -> anyhow::Result<Value> {
+    update_stream_with(&mudhut_bin(), prefix, apps, opts, &mut on_event)
+}
+
+fn update_stream_with(
+    bin: &str,
+    prefix: &str,
+    apps: &[String],
+    opts: &UpdateOpts,
+    on_event: &mut dyn FnMut(Value),
+) -> anyhow::Result<Value> {
+    if apps.is_empty() {
+        return Err(anyhow!("no apps to update"));
+    }
+    let s = stream_with(bin, &update_args(prefix, apps, opts), true, on_event)?;
+    let exit = s.exit.map(Value::from).unwrap_or(Value::Null);
+    if let Some(mut r) = s.result {
+        if s.exit != Some(0) {
+            r["exit"] = exit;
+        }
+        return Ok(r);
+    }
+    if let Some(mut e) = s.error {
+        e["ok"] = Value::Bool(false);
+        if e.get("exit").is_none() {
+            e["exit"] = exit;
+        }
+        return Ok(e);
+    }
+    if s.exit != Some(0) {
+        return Err(anyhow!("mudhut update exited with {} and reported no result", exit_label(s.exit)));
+    }
+    Err(anyhow!("mudhut update finished without a result"))
 }
 
 #[cfg(test)]
@@ -388,7 +495,7 @@ pub(crate) mod tests {
              echo '{\"event\":\"result\",\"apps\":[\"lightroom\"]}'\n",
         );
         let mut seen = Vec::new();
-        let r = install_stream_with(&f.bin, "lightroom", "iso", "/nonexistent", None, &mut |v| {
+        let r = install_stream_with(&f.bin, "lightroom", "iso", "/nonexistent", None, &InstallOpts::default(), &mut |v| {
             seen.push(v["event"].as_str().unwrap_or("").to_string())
         });
         let result = r.expect("install_stream must not fail on a non-UTF-8 line");
@@ -407,7 +514,7 @@ pub(crate) mod tests {
              echo '{\"event\":\"result\",\"ok\":false,\"message\":\"Premiere Pro installed, but the 2025 version could not be removed.\"}'\n\
              exit 1\n",
         );
-        let r = install_stream_with(&f.bin, "premiere", "download", "/p", None, &mut |_| {})
+        let r = install_stream_with(&f.bin, "premiere", "download", "/p", None, &InstallOpts::default(), &mut |_| {})
             .expect("a result on a non-zero exit is data, not an error");
         assert_eq!(r["ok"], false);
         assert_eq!(r["exit"], 1);
@@ -420,7 +527,7 @@ pub(crate) mod tests {
             "echo '{\"event\":\"error\",\"code\":\"app-running\",\"exit\":3,\"message\":\"Close Premiere Pro first.\",\"apps_running\":[\"Premiere Pro\"]}'\n\
              exit 3\n",
         );
-        let e = install_stream_with(&f.bin, "premiere", "download", "/p", None, &mut |_| {})
+        let e = install_stream_with(&f.bin, "premiere", "download", "/p", None, &InstallOpts::default(), &mut |_| {})
             .expect_err("an error event is a failure");
         assert_eq!(e.to_string(), "Close Premiere Pro first.");
     }
@@ -428,7 +535,7 @@ pub(crate) mod tests {
     #[test]
     fn install_stream_nonzero_exit_without_result_is_an_error() {
         let f = fake("echo 'wine noise'\nexit 1\n");
-        let e = install_stream_with(&f.bin, "premiere", "download", "/p", None, &mut |_| {})
+        let e = install_stream_with(&f.bin, "premiere", "download", "/p", None, &InstallOpts::default(), &mut |_| {})
             .expect_err("no terminal object and exit 1");
         assert!(e.to_string().contains("code 1"), "{e}");
     }
@@ -442,7 +549,7 @@ pub(crate) mod tests {
             "sid=$(cut -d' ' -f6 /proc/$$/stat)\n\
              echo \"{\\\"event\\\":\\\"result\\\",\\\"pid\\\":$$,\\\"sid\\\":$sid}\"\n",
         );
-        let r = install_stream_with(&f.bin, "premiere", "download", "/p", None, &mut |_| {}).unwrap();
+        let r = install_stream_with(&f.bin, "premiere", "download", "/p", None, &InstallOpts::default(), &mut |_| {}).unwrap();
         assert_eq!(r["pid"], r["sid"], "the install must lead its own session: {r}");
         let ours = std::fs::read_to_string("/proc/self/stat").unwrap();
         let our_sid: i64 = ours.rsplit(')').next().unwrap().split_whitespace().nth(3).unwrap().parse().unwrap();
@@ -452,7 +559,7 @@ pub(crate) mod tests {
     #[test]
     fn install_argv_is_exact() {
         let f = fake("echo '{\"event\":\"result\",\"ok\":true}'\n");
-        install_stream_with(&f.bin, "photoshop", "offline", "/home/u/My Prefix", Some("/m/disc.iso"), &mut |_| {})
+        install_stream_with(&f.bin, "photoshop", "offline", "/home/u/My Prefix", Some("/m/disc.iso"), &InstallOpts::default(), &mut |_| {})
             .unwrap();
         assert_eq!(
             argv(&f),
@@ -572,6 +679,159 @@ pub(crate) mod tests {
         let v = check_updates_with(&f.bin, &["/p".into()], &opts(None, false, false)).unwrap();
         assert_eq!(v["exit"], 5);
         assert_eq!(v["supported"], true);
+    }
+
+    // --- update ----------------------------------------------------------------------------
+
+    fn upd_opts(to: Option<&str>, allow_unverified: bool, no_snapshot: bool) -> UpdateOpts {
+        UpdateOpts { to: to.map(str::to_string), allow_unverified, no_snapshot }
+    }
+    fn run_update(f: &Fake, apps: &[&str], o: &UpdateOpts) -> (anyhow::Result<Value>, Vec<Value>) {
+        let apps: Vec<String> = apps.iter().map(|a| a.to_string()).collect();
+        let mut seen = Vec::new();
+        let r = update_stream_with(&f.bin, "/home/u/Neutron Prefixes/Adobe 2026", &apps, o, &mut |v| seen.push(v));
+        (r, seen)
+    }
+
+    #[test]
+    fn update_argv_is_exact() {
+        let f = fake_output("{\"event\":\"result\",\"ok\":true,\"prefix\":\"p\",\"apps\":[]}\n", "", 0);
+        run_update(&f, &["premiere"], &upd_opts(Some("26.6.0.1"), true, true)).0.unwrap();
+        assert_eq!(argv(&f), ["--json", "update", "--prefix", "/home/u/Neutron Prefixes/Adobe 2026", "premiere",
+                              "--to", "26.6.0.1", "--allow-unverified", "--no-snapshot"]);
+        run_update(&f, &["premiere", "aftereffects"], &upd_opts(None, false, false)).0.unwrap();
+        assert_eq!(argv(&f), ["--json", "update", "--prefix", "/home/u/Neutron Prefixes/Adobe 2026", "premiere",
+                              "aftereffects"], "no --all, no --to, no flags the user did not choose");
+    }
+
+    #[test]
+    fn update_with_no_apps_is_refused_without_running_mudhut() {
+        let f = fake_output("", "", 0);
+        let e = run_update(&f, &[], &UpdateOpts::default()).0.unwrap_err();
+        assert_eq!(e.to_string(), "no apps to update");
+        assert!(argv(&f).is_empty(), "mudhut must not have run");
+    }
+
+    #[test]
+    fn update_success_streams_progress_then_app_result_then_result() {
+        let f = fake_output(concat!(
+            r#"{"event":"progress","app":"premiere","stage":"preflight","pct":0,"msg":"Checking"}"#, "\n",
+            r#"{"event":"progress","app":"premiere","stage":"download","pct":42,"msg":"Downloading"}"#, "\n",
+            "wine: some noise\n",
+            r#"{"event":"progress","app":"premiere","stage":"snapshot","pct":60,"msg":"Backing up"}"#, "\n",
+            r#"{"event":"app_result","app":"premiere","ok":true,"from":"26.3.0.12","to":"26.5.2.3"}"#, "\n",
+            r#"{"event":"result","ok":true,"prefix":"/home/u/Neutron Prefixes/Adobe 2026","apps":[{"app":"premiere","ok":true,"from":"26.3.0.12","to":"26.5.2.3"}]}"#, "\n"),
+            "", 0);
+        let (r, seen) = run_update(&f, &["premiere"], &upd_opts(Some("26.5.2.3"), false, false));
+        let r = r.unwrap();
+        assert_eq!(r["ok"], true);
+        assert!(r.get("exit").is_none());
+        let kinds: Vec<&str> = seen.iter().map(|v| v["event"].as_str().unwrap()).collect();
+        assert_eq!(kinds, ["progress", "progress", "progress", "app_result", "result"]);
+        assert_eq!(seen[1]["app"], "premiere");
+        assert_eq!(seen[1]["pct"], 42);
+        assert_eq!(seen[3]["to"], "26.5.2.3");
+    }
+
+    /// Update all with one app failed: the terminal result still arrives (exit 1) and is returned,
+    /// so the page can report every app.
+    #[test]
+    fn update_all_with_one_failure_returns_the_result_and_exit_1() {
+        let f = fake_output(concat!(
+            r#"{"event":"app_result","app":"premiere","ok":true,"from":"26.3.0.12","to":"26.5.2.3"}"#, "\n",
+            r#"{"event":"app_result","app":"aftereffects","ok":false,"state":"unchanged","message":"Adobe's download stopped.","log":"/p/.mudhut/update.log"}"#, "\n",
+            r#"{"event":"result","ok":false,"prefix":"/p","apps":[{"app":"premiere","ok":true},{"app":"aftereffects","ok":false,"state":"unchanged"}]}"#, "\n"),
+            "", 1);
+        let (r, seen) = run_update(&f, &["premiere", "aftereffects"], &UpdateOpts::default());
+        let r = r.expect("a result on exit 1 is data");
+        assert_eq!(r["exit"], 1);
+        assert_eq!(r["apps"][1]["state"], "unchanged");
+        assert_eq!(seen.iter().filter(|v| v["event"] == "app_result").count(), 2);
+    }
+
+    #[test]
+    fn update_refused_while_an_app_runs_is_data_not_failure() {
+        let f = fake_output(
+            r#"{"event":"error","code":"app-running","exit":3,"prefix_changed":false,"apps_running":["Premiere Pro","After Effects"],"message":"Close Premiere Pro and After Effects first."}
+"#, "", 3);
+        let r = run_update(&f, &["premiere"], &UpdateOpts::default()).0.unwrap();
+        assert_eq!(r["ok"], false);
+        assert_eq!(r["code"], "app-running");
+        assert_eq!(r["exit"], 3);
+        assert_eq!(r["prefix_changed"], false);
+        assert_eq!(r["apps_running"][1], "After Effects");
+    }
+
+    /// Exits 4, 5 and 6 come as terminal error events; an event without an `exit` field gets the
+    /// process's.
+    #[test]
+    fn update_error_exits_4_5_6_keep_code_and_exit() {
+        for (code, exit) in [("needs-runtime", 4), ("network", 5), ("snapshot-space", 6)] {
+            let f = fake_output(
+                &format!("{{\"event\":\"error\",\"code\":\"{code}\",\"prefix_changed\":false,\"message\":\"m\"}}\n"),
+                "", exit);
+            let r = run_update(&f, &["photoshop"], &UpdateOpts::default()).0.unwrap();
+            assert_eq!(r["code"], code);
+            assert_eq!(r["exit"], exit);
+            assert_eq!(r["ok"], false);
+        }
+    }
+
+    #[test]
+    fn update_rolled_back_exit_7_and_rollback_failed_exit_8() {
+        for (state, exit) in [("rolled_back", 7), ("incomplete", 8)] {
+            let f = fake_output(&format!(concat!(
+                r#"{{"event":"progress","app":"photoshop","stage":"rollback","pct":95,"msg":"Putting back"}}"#, "\n",
+                r#"{{"event":"app_result","app":"photoshop","ok":false,"state":"{0}","message":"m","log":"/p/.mudhut/update.log"}}"#, "\n",
+                r#"{{"event":"result","ok":false,"prefix":"/p","apps":[{{"app":"photoshop","ok":false,"state":"{0}"}}]}}"#, "\n"),
+                state), "", exit);
+            let (r, seen) = run_update(&f, &["photoshop"], &UpdateOpts::default());
+            let r = r.unwrap();
+            assert_eq!(r["exit"], exit);
+            assert_eq!(seen[1]["state"], state);
+        }
+    }
+
+    #[test]
+    fn update_survives_non_utf8_lines() {
+        let f = fake(
+            "printf 'reg\\377: termin\\202e\\r\\n'\n\
+             echo '{\"event\":\"progress\",\"app\":\"premiere\",\"stage\":\"apply\",\"pct\":70,\"msg\":\"x\"}'\n\
+             echo '{\"event\":\"result\",\"ok\":true,\"prefix\":\"p\",\"apps\":[]}'\n",
+        );
+        let (r, seen) = run_update(&f, &["premiere"], &UpdateOpts::default());
+        assert_eq!(r.unwrap()["ok"], true);
+        assert_eq!(seen.len(), 2);
+    }
+
+    #[test]
+    fn update_without_a_terminal_object_is_an_error() {
+        let f = fake_output(r#"{"event":"progress","app":"premiere","stage":"apply","pct":70,"msg":"x"}
+"#, "", 1);
+        let e = run_update(&f, &["premiere"], &UpdateOpts::default()).0.unwrap_err();
+        assert!(e.to_string().contains("code 1"), "{e}");
+    }
+
+    #[test]
+    fn update_runs_in_its_own_session() {
+        let f = fake(
+            "sid=$(cut -d' ' -f6 /proc/$$/stat)\n\
+             echo \"{\\\"event\\\":\\\"result\\\",\\\"ok\\\":true,\\\"pid\\\":$$,\\\"sid\\\":$sid}\"\n",
+        );
+        let r = run_update(&f, &["premiere"], &UpdateOpts::default()).0.unwrap();
+        assert_eq!(r["pid"], r["sid"], "{r}");
+    }
+
+    #[test]
+    fn install_argv_with_yearly_and_speech_options() {
+        let f = fake_output("{\"event\":\"result\",\"ok\":true}\n", "", 0);
+        let o = InstallOpts { version: Some("27".into()), speech_packs: true, remove_previous: true };
+        install_stream_with(&f.bin, "premiere", "download", "/p", None, &o, &mut |_| {}).unwrap();
+        assert_eq!(argv(&f), ["--json", "install", "premiere", "--method", "download", "--prefix", "/p",
+                              "--version", "27", "--speech-packs", "--remove-previous"]);
+        install_stream_with(&f.bin, "premiere", "download", "/p", None, &InstallOpts::default(), &mut |_| {}).unwrap();
+        assert_eq!(argv(&f), ["--json", "install", "premiere", "--method", "download", "--prefix", "/p"],
+                   "speech packs are off unless asked for");
     }
 
     #[test]
