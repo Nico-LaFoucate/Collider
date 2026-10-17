@@ -196,12 +196,16 @@ export async function mudhutApps(source = null) {
 
 /** Install an app via Mud Hut, streaming progress. `onEvent(ev)` receives each
  *  event live: { event:"progress", stage, pct, msg } / { event:"note", msg } /
- *  the terminal { event:"result", ... }. Resolves with the terminal result, or
- *  rejects with the error message. */
-export async function installApp({ app, method, prefix, source = null, onEvent }) {
+ *  the terminal { event:"result", ... }. Resolves with the terminal result (with `exit` when Mud
+ *  Hut exited non-zero after it; `ok:false` is then a failure in Mud Hut's words), or rejects with
+ *  the error message. `version` picks a yearly version (`--version MAJOR`), `speechPacks` adds
+ *  Premiere Pro's speech-to-text languages, `removePrevious` removes the previous yearly version. */
+export async function installApp({ app, method, prefix, source = null, version = null,
+                                   speechPacks = false, removePrevious = false, onEvent }) {
   const channel = new Channel();
   channel.onmessage = (ev) => onEvent?.(ev);
-  return await invoke("install_app", { app, method, prefix, source, onEvent: channel });
+  return await invoke("install_app", { app, method, prefix, source, version, speechPacks,
+                                       removePrevious, onEvent: channel });
 }
 
 // --- Adobe app updates (Mud Hut) -----------------------------------------------
@@ -212,4 +216,15 @@ export async function installApp({ app, method, prefix, source = null, onEvent }
  *  `offline` never contacts Adobe (installed versions and update state are still re-read). */
 export async function checkAdobeUpdates(prefixes, { maxAge = null, refresh = false, offline = false } = {}) {
   return await invoke("check_adobe_updates", { prefixes, maxAge, refresh, offline });
+}
+
+/** Update apps in one prefix (`mudhut update`), streaming every event to `onEvent`: progress
+ *  ({app, stage, pct, msg}), note, app_result ({app, ok, from, to} or {app, ok:false, state,
+ *  message, log}). Resolves with Mud Hut's terminal object as data whatever happened: the result
+ *  ({ok, prefix, apps}, `exit` when non-zero) or the error ({event:"error", ok:false, code, exit,
+ *  message, apps_running, prefix_changed}). Rejects only when Mud Hut could not run or said nothing. */
+export async function updateAdobeApps({ prefix, apps, to = null, allowUnverified = false, noSnapshot = false, onEvent }) {
+  const channel = new Channel();
+  channel.onmessage = (ev) => onEvent?.(ev);
+  return await invoke("update_adobe_apps", { prefix, apps, to, allowUnverified, noSnapshot, onEvent: channel });
 }

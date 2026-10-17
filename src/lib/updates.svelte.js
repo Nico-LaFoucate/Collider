@@ -12,8 +12,8 @@
 // Rows are keyed per (prefix, app id), never by app id alone: two prefixes can hold the same app
 // (the 2026-09-18 session bug class).
 
-import { checkAdobeUpdates } from "$lib/api.js";
-import { ukey } from "$lib/updates-logic.js";
+import { checkAdobeUpdates, updateAdobeApps, installApp } from "$lib/api.js";
+import { ukey, outcomeFromAppResult, outcomeFromTerminal, targetLabel } from "$lib/updates-logic.js";
 
 export const upd = $state({
   supported: true,     // false: Mud Hut cannot check (unsupported says why)
@@ -21,8 +21,11 @@ export const upd = $state({
   checking: false,     // a check is running (any kind)
   refreshing: false,   // a "Check now" is running
   // The last check that was allowed to contact Adobe: { checked_at, online, feed_error,
-  // from_cache, verified_list }. Offline reads never replace it, so "Last checked" means Adobe.
+  // from_cache, verified_list }. Offline reads never replace it.
   lastNetwork: null,
+  // `checked_at` of the last such check that reached Adobe (online), for "Last checked". When a
+  // check could not reach Adobe its time says nothing about how fresh the answer is.
+  lastReachedAt: null,
   failed: null,        // a check that failed outright: its message (shown quietly, never as the Apps banner)
   prefixes: {},        // prefix -> Mud Hut's prefix object { ok, apps_running, update_in_progress, last_update, apps }
   jobs: {},            // prefix -> a job THIS Collider started (see runUpdate/runYearlyInstall)
@@ -73,6 +76,7 @@ async function runCheck(prefixes, { refresh, offline, partial }) {
         checked_at: r.checked_at ?? null, online: r.online !== false, feed_error: r.feed_error ?? null,
         from_cache: !!r.from_cache, verified_list: r.verified_list ?? null,
       };
+      if (r.online !== false && r.checked_at) upd.lastReachedAt = r.checked_at;
     }
     const before = upd.prefixes;
     const next = partial ? { ...before } : {};
@@ -158,6 +162,110 @@ export function checkNow(prefixes) {
 /** The row Mud Hut reported for `id` in `prefix`, or undefined. */
 export function rowFor(prefix, id) {
   return upd.prefixes[prefix]?.apps?.find((a) => a.id === id);
+}
+
+// --- running an update -----------------------------------------------------------------------
+
+/** True while this Collider runs any Adobe update or yearly install (Neutron's own update waits). */
+export const anyJob = () => Object.keys(upd.jobs).length > 0;
+
+function track(prefix, ev) {
+  const j = upd.jobs[prefix];
+  if (!j) return;
+  if (ev.app) j.app = ev.app;
+  if (ev.event === "progress") {
+    if (ev.stage) j.stage = ev.stage;
+    if (typeof ev.pct === "number") j.pct = ev.pct;
+    if (ev.msg) j.msg = ev.msg;
+  } else if (ev.event === "note" && ev.msg) {
+    j.msg = ev.msg;
+  } else if (ev.event === "app_result" && ev.app) {
+    record(prefix, ev.app, outcomeFromAppResult(ev));
+  }
+}
+
+// The target label the user saw goes on a success, so the card can say "Updated to 26.5.2".
+let shown = {};
+function record(prefix, id, o) {
+  if (o.state === "updated" && !o.toLabel) o.toLabel = shown[ukey(prefix, id)] ?? null;
+  upd.outcomes[ukey(prefix, id)] = o;
+}
+
+/**
+ * Run `mudhut update` for the apps the user confirmed in `prefix`. Progress, per-app outcomes and
+ * the final answer land in the store; the dialog closes as soon as this starts. Afterwards the
+ * prefix is re-read (installed versions changed) and the page reloads its apps.
+ *   apps            ids the user confirmed (never "all")
+ *   to              the exact build the user saw (one app)
+ *   allowUnverified the user chose a build Neutron has not verified
+ *   noSnapshot      the Preferences backup setting is off
+ *   labels          { id: target label } for the success pills
+ */
+export async function runUpdate({ prefix, apps, to = null, allowUnverified = false, noSnapshot = false, labels = {} }) {
+  if (upd.jobs[prefix] || !apps?.length) return null;
+  for (const id of apps) {
+    delete upd.outcomes[ukey(prefix, id)];
+    shown[ukey(prefix, id)] = labels[id] ?? null;
+  }
+  upd.jobs[prefix] = { kind: "update", apps: [...apps], app: apps[0], stage: "starting", pct: 0, msg: "", label: null };
+  let r = null;
+  try {
+    r = await updateAdobeApps({ prefix, apps, to, allowUnverified, noSnapshot, onEvent: (ev) => track(prefix, ev) });
+  } catch (e) {
+    // Mud Hut could not run, or stopped without a word: nothing it reported, so say only that.
+    for (const id of apps) {
+      if (!upd.outcomes[ukey(prefix, id)]) record(prefix, id, { state: "failed", message: String(e) });
+    }
+  } finally {
+    delete upd.jobs[prefix];
+  }
+  if (r) settle(prefix, apps, r);
+  await check([prefix], { offline: true, partial: true });
+  hooks.prefixChanged(prefix);
+  return r;
+}
+
+// Apps the run did not report on one by one take their outcome from the terminal object: the
+// result's `apps` entry when there is one, else the result or error as a whole.
+function settle(prefix, apps, r) {
+  const perApp = Array.isArray(r.apps) ? r.apps : [];
+  for (const id of apps) {
+    if (upd.outcomes[ukey(prefix, id)]) continue;
+    const entry = perApp.find((a) => a && typeof a === "object" && (a.app === id || a.id === id));
+    record(prefix, id, entry ? outcomeFromAppResult(entry) : outcomeFromTerminal(r));
+  }
+}
+
+/**
+ * Install a new yearly version (`mudhut install APP --method download --version MAJOR`), which
+ * holds the prefix like an update does, so it is a job of the same kind on the card.
+ */
+export async function runYearlyInstall({ prefix, app, version, label, removePrevious = false, speechPacks = false }) {
+  if (upd.jobs[prefix]) return null;
+  delete upd.outcomes[ukey(prefix, app)];
+  upd.jobs[prefix] = { kind: "install", apps: [app], app, stage: "starting", pct: 0, msg: "", label };
+  let r = null;
+  try {
+    r = await installApp({ app, method: "download", prefix, version, removePrevious, speechPacks,
+                           onEvent: (ev) => track(prefix, ev) });
+    upd.outcomes[ukey(prefix, app)] = r?.ok === false
+      ? { state: "failed", message: r.message ?? r.reason ?? `${label} didn't install.` }
+      : { state: "installed", label, message: r?.exit ? (r.message ?? null) : null };
+  } catch (e) {
+    upd.outcomes[ukey(prefix, app)] = { state: "failed", message: String(e) };
+  } finally {
+    delete upd.jobs[prefix];
+  }
+  await check([prefix], { offline: true, partial: true });
+  hooks.prefixChanged(prefix);
+  return r;
+}
+
+/** The labels to show on success, from the rows the user confirmed. */
+export function targetLabels(rows, target = null) {
+  const out = {};
+  for (const r of rows ?? []) out[r.id] = targetLabel(target ?? r.update);
+  return out;
 }
 
 export { ukey };

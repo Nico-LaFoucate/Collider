@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "build:appimage": "NO_STRIP=true tauri build"
+    "build:appimage": "NO_STRIP=true tauri build",
+    "test": "node --test src/lib/"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
