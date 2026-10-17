@@ -90,7 +90,9 @@ test("card: an update of another app in the prefix locks Launch and Update", () 
   assert.equal(v.progress, null);
   const mine = cardView({ row: aftereffects(), pstate: p, job });
   assert.equal(mine.pills[0].text, "Updating…");
-  assert.deepEqual(mine.progress, { pct: 30, text: "Downloading" });
+  assert.deepEqual(mine.progress, { pct: 30, text: "Downloading" }, "the stage when Mud Hut gave no sentence");
+  const said = cardView({ row: aftereffects(), pstate: p, job: { ...job, msg: "Downloading After Effects" } });
+  assert.equal(said.progress.text, "Downloading After Effects", "Mud Hut's sentence, not the stage repeated");
   assert.equal(mine.button.label, "Updating…");
 });
 

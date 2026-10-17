@@ -192,9 +192,10 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
     if (listed(act.apps, row ?? { id, name: appName })) {
       const installing = act.kind === "install";
       view.pills.push({ text: installing ? "Installing…" : "Updating…", cls: "warn pulse" });
+      // Mud Hut's own sentence when it gave one ("Downloading Premiere Pro"), else the stage.
       view.progress = {
         pct: typeof act.pct === "number" ? act.pct : null,
-        text: [stageLabel(act.stage), act.msg].filter(Boolean).join(" · "),
+        text: act.msg || stageLabel(act.stage) || "",
       };
       view.button = { label: installing ? "Installing…" : "Updating…", disabled: true, reason: null, action: null };
       return view;

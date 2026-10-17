@@ -1438,7 +1438,7 @@
               Check for Adobe app updates
             </label>
             <div class="pref-row" style="margin-top:10px;">
-              <span class="muted">
+              <span class="muted pref-small">
                 {#if upd.refreshing}Checking with Adobe…
                 {:else if upd.lastReachedAt}Last checked {when(upd.lastReachedAt)}
                 {:else}Not checked with Adobe yet{/if}
@@ -1795,6 +1795,7 @@
   .updv-all { display: flex; justify-content: flex-end; padding-top: 4px; }
   .sel { user-select: text; -webkit-user-select: text; color: rgba(255,255,255,0.65); word-break: break-all; }
   .signin-d.warn { color: #f0b84a; }
+  .pref-small { font-size: 12px; }
   .speech-opt { display: flex; align-items: flex-start; gap: 8px; text-align: left; font-size: 12.5px;
                 color: rgba(255,255,255,0.85); cursor: pointer; line-height: 1.45; }
   .speech-opt input { accent-color: #9a5cf5; margin-top: 3px; }

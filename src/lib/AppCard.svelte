@@ -261,7 +261,8 @@
   .card-note.bad { color: #ff9b9b; }
   .card-log { font-size: 10px; color: rgba(255,255,255,0.4); margin: -6px 0 10px; word-break: break-all; }
   .card-log .sel { user-select: text; -webkit-user-select: text; color: rgba(255,255,255,0.6); }
-  .update-btn { flex-shrink: 0; padding: 9px 12px; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 600;
+  /* 8px + a 1px border = Launch's 9px with none, so the two buttons line up. */
+  .update-btn { flex-shrink: 0; padding: 8px 12px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 600;
                 border: 1px solid rgba(239,159,39,0.35); background: rgba(239,159,39,0.12); color: #f2c374; }
   .update-btn:hover:not(:disabled) { background: rgba(239,159,39,0.2); }
   .update-btn:disabled { opacity: 0.5; cursor: default; }
