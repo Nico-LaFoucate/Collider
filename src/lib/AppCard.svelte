@@ -4,9 +4,14 @@
   // color via --acrgb. Wired to the generic per-app command surface.
   import { launchApp, isAppAlive, cleanExitApp, forceQuitApp, adoptApp } from "$lib/api.js";
   import { onDestroy } from "svelte";
+  import { upd, ukey } from "$lib/updates.svelte.js";
+  import { cardView } from "$lib/updates-logic.js";
 
   // app = { id, name, accent, export, installed }; info = shared prefix info.
-  let { app, prefix, info = null } = $props();
+  // neutronBusy: a Neutron update is running (Adobe updates wait for it).
+  // onupdate(action, row): the user clicked the update button; the page opens the dialog.
+  // onexit(): the app was closed, so what is open in the prefix changed.
+  let { app, prefix, info = null, neutronBusy = false, onupdate = null, onexit = null } = $props();
 
   // Adobe-style 2-letter badge; fall back to the first two name letters.
   const BADGES = { premiere: "Pr", photoshop: "Ps", lightroom: "Lr", lightroomcc: "Lr",
@@ -37,6 +42,16 @@
     LaunchingPremiere: 0.6, Running: 1, Stopped: 0, Failed: 1,
   };
   const progress = $derived(STEP_PROGRESS[step.step] ?? 0);
+
+  // --- Adobe app update for this app in this prefix: Mud Hut's row, rendered (updates-logic.js).
+  const urow = $derived(upd.prefixes[prefix]?.apps?.find((a) => a.id === app.id));
+  const uv = $derived(cardView({
+    row: urow, id: app.id, name: app.name, pstate: upd.prefixes[prefix], job: upd.jobs[prefix],
+    outcome: upd.outcomes[ukey(prefix, app.id)], appRunning: running || busy, neutronBusy,
+  }));
+  // An update (or yearly install) holds the whole prefix: launching would start wine in it while
+  // Adobe's installer works there. A running app keeps its button (Force quit stays reachable).
+  const launchLocked = $derived(!!uv.launchLock && !running);
   // `busy` covers EVERY in-flight action, so a single "Launching…" label lied during a quit —
   // the user watched the button say "Launching…" while the app shut down. Name the action.
   let action = $state(null);   // "launch" | "quit" | null
@@ -82,6 +97,7 @@
         if (!(await isAppAlive(app.id, prefix))) {
           stopPolling(); action = "quit";
           try { step = await cleanExitApp(app.id, prefix); } finally { action = null; }
+          onexit?.();
         }
       } catch (e) { stopPolling(); error = String(e); }
     }, 1500);
@@ -95,7 +111,7 @@
     handledPid = app?.pid ?? step.detail?.premiere_pid ?? handledPid;
     try { stopPolling(); step = await forceQuitApp(app.id, prefix); }
     catch (e) { error = String(e); }
-    finally { busy = false; action = null; }
+    finally { busy = false; action = null; onexit?.(); }
   }
 
   // Clicking while Running toggles the force-quit menu (Running is a status).
@@ -133,6 +149,9 @@
     {:else}
       <span class="pill">Not checked</span>
     {/if}
+    {#each uv.pills as p}
+      <span class="pill {p.cls}" title={p.title ?? ""}>{p.text}</span>
+    {/each}
     {#if running}
       {#if step.detail?.display}
         {#if step.detail.display === "wayland"}
@@ -149,9 +168,22 @@
 
   {#if error}<div class="card-err">{error}</div>{/if}
 
+  {#if uv.progress}
+    <div class="upd">
+      <div class="upd-bar">
+        <div class="upd-fill" class:indet={uv.progress.pct === null}
+             style="width: {uv.progress.pct ?? 100}%"></div>
+      </div>
+      {#if uv.progress.text}<div class="upd-msg">{uv.progress.text}</div>{/if}
+    </div>
+  {/if}
+  {#if uv.note}<div class="card-note {uv.noteCls}">{uv.note}</div>{/if}
+  {#if uv.log}<div class="card-log">Log: <span class="sel">{uv.log}</span></div>{/if}
+
   <div class="actions">
     <div class="launch-wrap">
-      <button class="primary {buttonClass}" onclick={onButtonClick} disabled={busy}>
+      <button class="primary {buttonClass}" onclick={onButtonClick} disabled={busy || launchLocked}
+              title={launchLocked ? uv.launchLock : ""}>
         {#if running}<span class="run-dot"></span>{/if}
         <span class="btn-label">{buttonLabel}</span>
         {#if busy}<span class="progress" style="width: {progress * 100}%"></span>{/if}
@@ -162,7 +194,15 @@
         </div>
       {/if}
     </div>
+    {#if uv.button}
+      <button class="update-btn" disabled={uv.button.disabled}
+              title={uv.button.reason ?? ""}
+              onclick={() => onupdate?.(uv.button.action, urow)}>{uv.button.label}</button>
+    {/if}
   </div>
+  {#if uv.button?.reason && urow?.update?.can_update === false}
+    <div class="card-note">{uv.button.reason}</div>
+  {/if}
 </article>
 
 <style>
@@ -208,6 +248,23 @@
   .menu-item:hover { background: rgba(255,255,255,0.06); }
   .menu-item.danger { color: #ff9b9b; }
   .menu-item.danger:hover { background: rgba(226,75,74,0.14); }
+
+  /* Adobe app update: progress, outcome note, log path, and the button beside Launch. */
+  .upd { margin-bottom: 10px; }
+  .upd-bar { height: 4px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
+  .upd-fill { height: 100%; background: rgba(var(--acrgb),0.85); transition: width 0.4s ease; }
+  .upd-fill.indet { opacity: 0.5; animation: pulse 1.6s infinite; }
+  .upd-msg { font-size: 10.5px; color: rgba(255,255,255,0.5); margin-top: 4px;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-note { font-size: 10.5px; color: rgba(255,255,255,0.55); margin-bottom: 10px; line-height: 1.45; }
+  .card-note.warn { color: #f2c374; }
+  .card-note.bad { color: #ff9b9b; }
+  .card-log { font-size: 10px; color: rgba(255,255,255,0.4); margin: -6px 0 10px; word-break: break-all; }
+  .card-log .sel { user-select: text; -webkit-user-select: text; color: rgba(255,255,255,0.6); }
+  .update-btn { flex-shrink: 0; padding: 9px 12px; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 600;
+                border: 1px solid rgba(239,159,39,0.35); background: rgba(239,159,39,0.12); color: #f2c374; }
+  .update-btn:hover:not(:disabled) { background: rgba(239,159,39,0.2); }
+  .update-btn:disabled { opacity: 0.5; cursor: default; }
 
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 </style>
