@@ -106,6 +106,89 @@ pub fn apps(source: Option<&str>) -> anyhow::Result<Value> {
     }
 }
 
+/// How a `check-updates` run may get its answer.
+#[derive(Debug, Default, Clone)]
+pub struct CheckOpts {
+    /// `--max-age DUR` (e.g. "24h"): reuse Adobe's feed if Mud Hut fetched it within this long.
+    /// The CLI's cache decides whether Adobe is contacted, so a 30-minute tick is a local read
+    /// most of the time and a restart does not refetch.
+    pub max_age: Option<String>,
+    /// `--refresh`: fetch the feed now ("Check now").
+    pub refresh: bool,
+    /// `--offline`: never touch the network; answer from the cached feed. Used for the startup
+    /// read and for following an update that is already running (installed versions and the
+    /// update state are re-read from the prefixes either way).
+    pub offline: bool,
+}
+
+/// `mudhut --json check-updates --prefix P ...`: what can be updated in each prefix.
+///
+/// Read-only in the engine (it never runs wine or writes into a prefix, and is safe while apps
+/// run), so Collider calls it on a timer. The result is returned as Mud Hut wrote it, plus
+/// `supported: true`; every sentence in it is Mud Hut's and the page renders them verbatim.
+///
+/// A Mud Hut without `check-updates` (clap prints "unrecognized subcommand" to stderr, exits 2,
+/// and writes nothing to stdout) or no Mud Hut at all is a state to render ("Update Neutron to
+/// get Adobe update checks"), not an error: `{ok: true, supported: false, reason}`.
+pub fn check_updates(prefixes: &[String], opts: &CheckOpts) -> anyhow::Result<Value> {
+    check_updates_with(&mudhut_bin(), prefixes, opts)
+}
+
+fn check_args(prefixes: &[String], opts: &CheckOpts) -> Vec<String> {
+    let mut args: Vec<String> = vec!["--json".into(), "check-updates".into()];
+    for p in prefixes {
+        // Exactly as registered: the CLI echoes each prefix string back, and Collider keys its
+        // rows on that string (symlinked homes must not be resolved on either side).
+        args.push("--prefix".into());
+        args.push(p.clone());
+    }
+    if opts.offline {
+        args.push("--offline".into());
+    } else {
+        if let Some(a) = &opts.max_age {
+            args.push("--max-age".into());
+            args.push(a.clone());
+        }
+        if opts.refresh {
+            args.push("--refresh".into());
+        }
+    }
+    args
+}
+
+fn check_updates_with(bin: &str, prefixes: &[String], opts: &CheckOpts) -> anyhow::Result<Value> {
+    let output = match clean_command(bin).args(check_args(prefixes, opts)).output() {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(serde_json::json!({ "ok": true, "supported": false, "reason": "missing" }));
+        }
+        Err(e) => return Err(anyhow!("failed to run `mudhut check-updates`: {e}")),
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let last = stdout.lines().rev().find(|l| !l.trim().is_empty());
+    let Some(mut v) = last.and_then(|l| serde_json::from_str::<Value>(l).ok()) else {
+        let err = String::from_utf8_lossy(&output.stderr);
+        if err.contains("unrecognized subcommand") {
+            return Ok(serde_json::json!({ "ok": true, "supported": false, "reason": "too-old" }));
+        }
+        let e = err.trim();
+        return Err(anyhow!(
+            "mudhut check-updates returned non-JSON (exit {}). stderr: {}",
+            output.status.code().unwrap_or(-1),
+            if e.is_empty() { "<empty>" } else { e }
+        ));
+    };
+    if v.get("event").and_then(|e| e.as_str()) == Some("error") {
+        let msg = v.get("message").and_then(|m| m.as_str()).unwrap_or("unknown error");
+        return Err(anyhow!("{msg}"));
+    }
+    v["supported"] = Value::Bool(true);
+    if output.status.code() != Some(0) {
+        v["exit"] = output.status.code().map(Value::from).unwrap_or(Value::Null);
+    }
+    Ok(v)
+}
+
 /// What one streamed Mud Hut run produced: its terminal object (if any) and how it exited.
 struct Streamed {
     /// The terminal `{"event":"result"}` (the LAST one: an install shells out to the engine for
@@ -270,6 +353,20 @@ pub(crate) mod tests {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         Fake { bin: path.to_string_lossy().into_owned(), dir }
     }
+    /// A fake that prints `stdout` verbatim (from a data file, so JSON needs no shell quoting),
+    /// writes `stderr` to stderr, and exits with `exit`.
+    pub(crate) fn fake_output(stdout: &str, stderr: &str, exit: i32) -> Fake {
+        let f = fake("");
+        std::fs::write(f.dir.join("out"), stdout).unwrap();
+        std::fs::write(f.dir.join("err"), stderr).unwrap();
+        let script = std::fs::read_to_string(&f.bin).unwrap()
+            + &format!(
+                "cat '{0}/out'\ncat '{0}/err' >&2\nexit {exit}\n",
+                f.dir.display()
+            );
+        std::fs::write(&f.bin, script).unwrap();
+        f
+    }
     /// The argv the fake was called with.
     pub(crate) fn argv(f: &Fake) -> Vec<String> {
         std::fs::read_to_string(f.dir.join("args"))
@@ -362,6 +459,119 @@ pub(crate) mod tests {
             ["--json", "install", "photoshop", "--method", "offline", "--prefix", "/home/u/My Prefix",
              "--source", "/m/disc.iso"]
         );
+    }
+
+    /// The `check-updates` terminal result exactly as CONTRACT.md writes it (one prefix,
+    /// Premiere with a verified in-place update, a newer unverified build and a new yearly
+    /// version), on one line as Mud Hut prints it.
+    pub(crate) const CONTRACT_CHECK: &str = r#"{"event":"result","ok":true,"schema":1,"checked_at":"2026-10-16T14:02:11Z","online":true,"feed_error":null,"from_cache":false,"next_check_after":"2026-10-17T14:02:11Z","verified_list":{"source":"network","serial":1,"signature":"valid"},"prefixes":[{"prefix":"/home/u/Neutron Prefixes/Adobe 2026","ok":true,"apps_running":["Premiere Pro"],"update_in_progress":null,"last_update":null,"apps":[{"id":"premiere","name":"Premiere Pro","sap":"PPRO","installed":{"version":"26.3.0.12","base":"26.0","year":2026,"managed_by":"hdpim"},"update":{"kind":"in_place","to":"26.5.2.3","label":"26.5.2","verified":true,"download_bytes":187000000,"can_update":true,"blocked_reason":null},"newer_unverified":{"to":"26.6.0.1","label":"26.6"},"new_major":{"year":2027,"to":"27.0.0.40","label":"2027","verified":false},"related":["aftereffects","mediaencoder"]}]}]}"#;
+
+    fn opts(max_age: Option<&str>, refresh: bool, offline: bool) -> CheckOpts {
+        CheckOpts { max_age: max_age.map(str::to_string), refresh, offline }
+    }
+
+    #[test]
+    fn check_passes_the_contract_shape_through_verbatim() {
+        let f = fake_output(&format!("{CONTRACT_CHECK}\n"), "", 0);
+        let p = "/home/u/Neutron Prefixes/Adobe 2026".to_string();
+        let v = check_updates_with(&f.bin, &[p.clone()], &opts(Some("24h"), false, false)).unwrap();
+        assert_eq!(v["supported"], true);
+        assert!(v.get("exit").is_none());
+        assert_eq!(v["online"], true);
+        let pre = &v["prefixes"][0];
+        assert_eq!(pre["prefix"], p.as_str(), "the prefix comes back exactly as passed");
+        assert_eq!(pre["apps_running"][0], "Premiere Pro");
+        let app = &pre["apps"][0];
+        assert_eq!(app["id"], "premiere");
+        assert_eq!(app["installed"]["managed_by"], "hdpim");
+        assert_eq!(app["update"]["to"], "26.5.2.3");
+        assert_eq!(app["update"]["verified"], true);
+        assert_eq!(app["update"]["download_bytes"], 187000000u64);
+        assert_eq!(app["newer_unverified"]["label"], "26.6");
+        assert_eq!(app["new_major"]["year"], 2027);
+        assert_eq!(app["related"][1], "mediaencoder");
+    }
+
+    #[test]
+    fn check_argv_for_a_tick_a_refresh_and_an_offline_read() {
+        let f = fake_output(&format!("{CONTRACT_CHECK}\n"), "", 0);
+        let ps = ["/a b/one".to_string(), "/home/u/two".to_string()];
+        check_updates_with(&f.bin, &ps, &opts(Some("24h"), false, false)).unwrap();
+        assert_eq!(argv(&f), ["--json", "check-updates", "--prefix", "/a b/one", "--prefix", "/home/u/two",
+                              "--max-age", "24h"]);
+        check_updates_with(&f.bin, &ps[..1], &opts(Some("24h"), true, false)).unwrap();
+        assert_eq!(argv(&f), ["--json", "check-updates", "--prefix", "/a b/one", "--max-age", "24h", "--refresh"]);
+        check_updates_with(&f.bin, &ps[..1], &opts(Some("24h"), true, true)).unwrap();
+        assert_eq!(argv(&f), ["--json", "check-updates", "--prefix", "/a b/one", "--offline"],
+                   "an offline read never asks for a refresh");
+    }
+
+    #[test]
+    fn check_up_to_date() {
+        let f = fake_output(
+            r#"{"event":"result","ok":true,"schema":1,"checked_at":"2026-10-16T14:02:11Z","online":true,"feed_error":null,"from_cache":true,"prefixes":[{"prefix":"/p","ok":true,"apps_running":[],"update_in_progress":null,"last_update":null,"apps":[{"id":"photoshop","name":"Photoshop","sap":"PHSP","installed":{"version":"27.0.1.4","base":"27.0","year":2026,"managed_by":"windows-copy"},"update":null,"newer_unverified":null,"new_major":null,"related":[]}]}]}
+"#, "", 0);
+        let v = check_updates_with(&f.bin, &["/p".into()], &opts(Some("24h"), false, false)).unwrap();
+        let app = &v["prefixes"][0]["apps"][0];
+        assert!(app["update"].is_null());
+        assert_eq!(app["installed"]["managed_by"], "windows-copy");
+    }
+
+    /// Offline is a status: exit 0, `online:false`, the cached rows still there.
+    #[test]
+    fn check_offline_is_status_not_error() {
+        let f = fake_output(
+            r#"{"event":"result","ok":true,"schema":1,"checked_at":"2026-10-14T09:00:00Z","online":false,"feed_error":"Couldn't reach Adobe.","from_cache":true,"prefixes":[]}
+"#, "", 0);
+        let v = check_updates_with(&f.bin, &["/p".into()], &opts(Some("24h"), false, false)).unwrap();
+        assert_eq!(v["online"], false);
+        assert_eq!(v["supported"], true);
+    }
+
+    /// A Mud Hut from before `check-updates` (0.2.x): clap's message on stderr, exit 2, nothing on
+    /// stdout. Exactly what `mudhut --json check` printed in report D (F31).
+    #[test]
+    fn check_on_a_mudhut_too_old_is_unsupported() {
+        let f = fake_output(
+            "",
+            "error: unrecognized subcommand 'check-updates'\n\nUsage: mudhut [OPTIONS] <COMMAND>\n\nFor more information, try '--help'.\n",
+            2,
+        );
+        let v = check_updates_with(&f.bin, &["/p".into()], &opts(Some("24h"), false, false)).unwrap();
+        assert_eq!(v, serde_json::json!({ "ok": true, "supported": false, "reason": "too-old" }));
+    }
+
+    #[test]
+    fn check_without_mudhut_is_unsupported() {
+        let v = check_updates_with("/nonexistent/mudhut", &["/p".into()], &opts(None, false, false)).unwrap();
+        assert_eq!(v["supported"], false);
+        assert_eq!(v["reason"], "missing");
+    }
+
+    #[test]
+    fn check_error_event_is_an_error_with_its_message() {
+        let f = fake_output(
+            r#"{"event":"error","code":"bad-prefix","exit":2,"message":"/p is not a Neutron prefix."}
+"#, "", 2);
+        let e = check_updates_with(&f.bin, &["/p".into()], &opts(None, false, false)).unwrap_err();
+        assert_eq!(e.to_string(), "/p is not a Neutron prefix.");
+    }
+
+    #[test]
+    fn check_garbage_is_an_error_naming_stderr() {
+        let f = fake_output("not json\n", "thread 'main' panicked", 101);
+        let e = check_updates_with(&f.bin, &["/p".into()], &opts(None, false, false)).unwrap_err();
+        let s = e.to_string();
+        assert!(s.contains("exit 101") && s.contains("panicked"), "{s}");
+    }
+
+    /// A result that comes with a non-zero exit is still the answer; the code rides along.
+    #[test]
+    fn check_result_on_a_nonzero_exit_keeps_the_code() {
+        let f = fake_output(&format!("{CONTRACT_CHECK}\n"), "", 5);
+        let v = check_updates_with(&f.bin, &["/p".into()], &opts(None, false, false)).unwrap();
+        assert_eq!(v["exit"], 5);
+        assert_eq!(v["supported"], true);
     }
 
     #[test]

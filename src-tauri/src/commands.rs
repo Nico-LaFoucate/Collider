@@ -425,6 +425,24 @@ pub async fn mudhut_apps(source: Option<String>) -> Result<Value, String> {
     off_main(move || crate::mudhut::apps(source.as_deref()).map_err(estr)).await
 }
 
+/// What Adobe app updates exist in `prefixes` (`mudhut check-updates`). Read-only in the engine and
+/// safe while apps run; Collider calls it on a timer. Returns Mud Hut's result verbatim plus
+/// `supported`; `supported:false` (Mud Hut too old, or missing) is a state for the page to show,
+/// not an error. `max_age` is a duration string ("24h"); `offline` never contacts Adobe.
+#[tauri::command]
+pub async fn check_adobe_updates(
+    prefixes: Vec<String>,
+    max_age: Option<String>,
+    refresh: bool,
+    offline: bool,
+) -> Result<Value, String> {
+    off_main(move || {
+        let opts = crate::mudhut::CheckOpts { max_age, refresh, offline };
+        crate::mudhut::check_updates(&prefixes, &opts).map_err(estr)
+    })
+    .await
+}
+
 /// Install an app via Mud Hut, streaming progress to the frontend over `on_event`
 /// (each Mud Hut `progress`/`note`/`result`/`error` NDJSON event). Runs on a
 /// blocking thread so the (minutes-long) install never freezes the UI. Resolves

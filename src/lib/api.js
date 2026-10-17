@@ -203,3 +203,13 @@ export async function installApp({ app, method, prefix, source = null, onEvent }
   channel.onmessage = (ev) => onEvent?.(ev);
   return await invoke("install_app", { app, method, prefix, source, onEvent: channel });
 }
+
+// --- Adobe app updates (Mud Hut) -----------------------------------------------
+
+/** What Adobe app updates exist in `prefixes` (`mudhut check-updates`). Mud Hut's result verbatim
+ *  plus `supported`: `{supported:false, reason:"too-old"|"missing"}` when Mud Hut cannot check.
+ *  `maxAge` ("24h") lets Mud Hut's cache decide whether Adobe is contacted; `refresh` fetches now;
+ *  `offline` never contacts Adobe (installed versions and update state are still re-read). */
+export async function checkAdobeUpdates(prefixes, { maxAge = null, refresh = false, offline = false } = {}) {
+  return await invoke("check_adobe_updates", { prefixes, maxAge, refresh, offline });
+}

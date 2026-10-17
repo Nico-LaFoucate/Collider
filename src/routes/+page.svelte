@@ -6,9 +6,10 @@
            listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
            selectPrefix, provisionPrefix, fontsCheck, fontsRepair } from "$lib/api.js";
   import AppCard from "$lib/AppCard.svelte";
+  import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks } from "$lib/updates.svelte.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
 
   // --- window chrome ---
   // Collider draws its own title bar (DECISIONS C34, option A): the window is undecorated, the
@@ -411,7 +412,19 @@
     // Only load the library if there's a prefix to load it from; otherwise the first-run
     // panel takes over and a failed refresh would just add a confusing error on top of it.
     if (prefixValid) await refresh();
+
+    // Adobe app updates: after the library, so the check never delays it. Every registered,
+    // valid prefix, passed explicitly, read fresh on each tick (a prefix added later is
+    // included). The setting is read on every tick too.
+    setUpdateHooks({
+      // An update finished (ours, or one left running by an earlier Collider): its apps changed.
+      prefixChanged: async (p) => { await loadPrefixes(); if (p === prefix) await refresh(); },
+    });
+    startUpdateChecks(validPrefixPaths, () => settings.adobe_update_check !== false);
   });
+  onDestroy(stopUpdateChecks);
+
+  const validPrefixPaths = () => prefixes.filter((p) => p.valid).map((p) => p.path);
 
   // --- prefix registry actions ---------------------------------------------------------
   async function loadPrefixes() {

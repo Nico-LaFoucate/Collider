@@ -53,6 +53,19 @@ pub struct Settings {
     /// you point it at". None = nothing chosen yet, which is what triggers first-run setup.
     #[serde(default)]
     pub selected_prefix: Option<String>,
+
+    /// Ask Mud Hut which Adobe app updates exist: about 45 s after Collider starts, then on a
+    /// 30-minute tick that lets Mud Hut's own cache contact Adobe at most once a day. Only while
+    /// Collider is open; nothing is ever installed without the user choosing to. Default on
+    /// (DECISIONS C70).
+    #[serde(default = "default_true")]
+    pub adobe_update_check: bool,
+
+    /// Let Mud Hut keep a backup copy of the app before it updates it, so a failed update is put
+    /// back automatically. Off passes `--no-snapshot` (the copy can cost disk space where the
+    /// filesystem cannot share it). Default on (DECISIONS C70).
+    #[serde(default = "default_true")]
+    pub adobe_update_snapshot: bool,
 }
 
 /// One registered prefix. `name` is the user's label — the path alone is a poor identifier
@@ -65,6 +78,7 @@ pub struct PrefixEntry {
 
 fn default_theme() -> String { "dark".into() }
 fn default_button_icon_set() -> String { "none".into() }
+fn default_true() -> bool { true }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -76,6 +90,8 @@ impl Default for Settings {
             button_icon_set: default_button_icon_set(),
             prefixes: Vec::new(),
             selected_prefix: None,
+            adobe_update_check: true,
+            adobe_update_snapshot: true,
         }
     }
 }
@@ -183,6 +199,10 @@ mod tests {
         assert_eq!(s.prefixes[0].name, "Adobe 2025");
         assert_eq!(s.selected_prefix.as_deref(), Some("/data/prefixes/adobe-2025"));
 
+        // A config from before the Adobe update settings gets their defaults (both on).
+        assert!(s.adobe_update_check);
+        assert!(s.adobe_update_snapshot);
+
         // load() goes through parse(), which must keep the same settings rather than defaults.
         let p = parse(CONFIG_0_1_0);
         assert_eq!(p.prefixes.len(), 1);
@@ -223,6 +243,18 @@ mod tests {
             assert_eq!(s.prefixes[0].path, "/data/prefixes/adobe-2025");
             assert_eq!(s.selected_prefix.as_deref(), Some("/data/prefixes/adobe-2025"));
         }
+    }
+
+    /// The update settings are the first ones added since the trap was fixed: turning one off
+    /// must survive a later save of an unrelated preference.
+    #[test]
+    fn update_settings_survive_an_unrelated_save() {
+        let stored = merge_patch(&parse(CONFIG_0_1_0),
+                                 &serde_json::json!({ "adobe_update_snapshot": false })).unwrap();
+        assert!(!stored.adobe_update_snapshot);
+        let s = merge_patch(&stored, &serde_json::json!({ "theme": "dark", "scale_mode": "auto" })).unwrap();
+        assert!(!s.adobe_update_snapshot, "an unrelated save must not reset it to on");
+        assert!(s.adobe_update_check);
     }
 
     #[test]

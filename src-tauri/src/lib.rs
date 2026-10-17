@@ -48,6 +48,8 @@ pub fn run() {
             // Mud Hut installer — app catalog + streaming install
             commands::mudhut_apps,
             commands::install_app,
+            // Adobe app updates (Mud Hut check-updates / update)
+            commands::check_adobe_updates,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Collider");
