@@ -10,10 +10,12 @@
 // clicked, and shows Mud Hut's sentences as Mud Hut wrote them.
 //
 // Rows are keyed per (prefix, app id), never by app id alone: two prefixes can hold the same app
-// (the 2026-09-18 session bug class).
+// (the 2026-09-18 session bug class). Outcomes go one level further, per (prefix, app id, year): two
+// yearly versions of one app sit side by side in a prefix, and one run can update both.
 
 import { checkAdobeUpdates, updateAdobeApps, installApp } from "$lib/api.js";
-import { ukey, pickRow, outcomeFromAppResult, outcomeFromTerminal, outcomeFromInstall, targetLabel } from "$lib/updates-logic.js";
+import { ukey, ykey, majorOf, outcomeMajor, outcomeFor as pickOutcome, pickRow, outcomeFromAppResult, outcomeFromTerminal,
+         outcomeFromInstall, targetLabel } from "$lib/updates-logic.js";
 
 export const upd = $state({
   supported: true,     // false: Mud Hut cannot check (unsupported says why)
@@ -29,7 +31,8 @@ export const upd = $state({
   failed: null,        // a check that failed outright: its message (shown quietly, never as the Apps banner)
   prefixes: {},        // prefix -> Mud Hut's prefix object { ok, apps_running, update_in_progress, last_update, apps }
   jobs: {},            // prefix -> a job THIS Collider started (see runUpdate/runYearlyInstall)
-  outcomes: {},        // ukey(prefix, id) -> how this Collider's last run for that app ended
+  outcomes: {},        // ykey(prefix, id, major) -> how this Collider's last run for that install ended;
+                       // ukey(prefix, id) when Mud Hut did not say which install (applies to every year)
 });
 
 // The page tells the store what to re-read when a prefix's apps changed (an update finished).
@@ -164,6 +167,9 @@ export function checkNow(prefixes) {
   return check(prefixes, { refresh: true });
 }
 
+/** This Collider's outcome for app `id` in `prefix`, for `row`'s install when given (see outcomeFor). */
+export const outcomeFor = (prefix, id, row) => pickOutcome(upd.outcomes, prefix, id, row, upd.prefixes[prefix]?.apps ?? []);
+
 /** The row Mud Hut reported for `id` in `prefix` (for `card`'s own year when given), or undefined. */
 export function rowFor(prefix, id, card) {
   return pickRow(upd.prefixes[prefix]?.apps, { ...card, id });
@@ -189,11 +195,30 @@ function track(prefix, ev) {
   }
 }
 
-// The target label the user saw goes on a success, so the card can say "Updated to 26.5.2".
+// The target label the user saw goes on a success, so the card can say "Updated to 26.5.2": the label
+// of the build Mud Hut reports it went to, from the rows the user saw (each year has its own), else
+// the label passed for the app.
 let shown = {};
-function record(prefix, id, o) {
-  if (o.state === "updated" && !o.toLabel) o.toLabel = shown[ukey(prefix, id)] ?? null;
-  upd.outcomes[ukey(prefix, id)] = o;
+function labelOf(prefix, id, build) {
+  if (!build) return null;
+  for (const r of upd.prefixes[prefix]?.apps ?? []) {
+    if (r?.id !== id) continue;
+    for (const t of [r.update, r.newer_unverified]) if (t?.to === build) return targetLabel(t);
+  }
+  return null;
+}
+// `major`: the year the run was for (`--to`), for an outcome Mud Hut gave without versions.
+function record(prefix, id, o, major = null) {
+  if (o.state === "updated" && !o.toLabel) o.toLabel = labelOf(prefix, id, o.to) ?? shown[ukey(prefix, id)] ?? null;
+  const m = outcomeMajor(o) ?? major;
+  upd.outcomes[m ? ykey(prefix, id, m) : ukey(prefix, id)] = o;
+}
+// A new run for `id` clears what the last one said: for the year it targets (`major`), or every year.
+function clearOutcomes(prefix, id, major = null) {
+  const base = ukey(prefix, id);
+  for (const k of Object.keys(upd.outcomes)) {
+    if (k === base || (major ? k === ykey(prefix, id, major) : k.startsWith(`${base}\u0000`))) delete upd.outcomes[k];
+  }
 }
 
 /**
@@ -208,8 +233,9 @@ function record(prefix, id, o) {
  */
 export async function runUpdate({ prefix, apps, to = null, allowUnverified = false, noSnapshot = false, labels = {} }) {
   if (upd.jobs[prefix] || !apps?.length) return null;
+  const major = majorOf(to);   // `--to` updates only the install of that build's year
   for (const id of apps) {
-    delete upd.outcomes[ukey(prefix, id)];
+    clearOutcomes(prefix, id, major);
     shown[ukey(prefix, id)] = labels[id] ?? null;
   }
   upd.jobs[prefix] = { kind: "update", apps: [...apps], app: apps[0], stage: "starting", pct: 0, msg: "", label: null };
@@ -219,12 +245,12 @@ export async function runUpdate({ prefix, apps, to = null, allowUnverified = fal
   } catch (e) {
     // Mud Hut could not run, or stopped without a word: nothing it reported, so say only that.
     for (const id of apps) {
-      if (!upd.outcomes[ukey(prefix, id)]) record(prefix, id, { state: "failed", message: String(e) });
+      if (!reported(prefix, id, major)) record(prefix, id, { state: "failed", message: String(e) }, major);
     }
   } finally {
     delete upd.jobs[prefix];
   }
-  if (r) settle(prefix, apps, r);
+  if (r) settle(prefix, apps, r, major);
   await check([prefix], { offline: true, partial: true });
   hooks.prefixChanged(prefix);
   return r;
@@ -232,13 +258,25 @@ export async function runUpdate({ prefix, apps, to = null, allowUnverified = fal
 
 // Apps the run did not report on one by one take their outcome from the terminal object: the
 // result's `apps` entry when there is one, else the result or error as a whole.
-function settle(prefix, apps, r) {
+function settle(prefix, apps, r, major) {
   const perApp = Array.isArray(r.apps) ? r.apps : [];
   for (const id of apps) {
-    if (upd.outcomes[ukey(prefix, id)]) continue;
-    const entry = perApp.find((a) => a && typeof a === "object" && (a.app === id || a.id === id));
-    record(prefix, id, entry ? outcomeFromAppResult(entry) : outcomeFromTerminal(r));
+    // Every per-app entry for this id (one per installed year), unless it was already announced.
+    const entries = perApp.filter((a) => a && typeof a === "object" && (a.app === id || a.id === id));
+    for (const entry of entries) {
+      const o = outcomeFromAppResult(entry);
+      const m = outcomeMajor(o) ?? major;
+      if (!(m ? upd.outcomes[ykey(prefix, id, m)] : upd.outcomes[ukey(prefix, id)])) record(prefix, id, o, major);
+    }
+    if (!entries.length && !reported(prefix, id, major)) record(prefix, id, outcomeFromTerminal(r), major);
   }
+}
+// Did this run already report on `id`? A run for one year (`major`) only about that year: the other
+// year's result from an earlier run does not count.
+function reported(prefix, id, major) {
+  if (upd.outcomes[ukey(prefix, id)]) return true;
+  if (major) return !!upd.outcomes[ykey(prefix, id, major)];
+  return Object.keys(upd.outcomes).some((k) => k.startsWith(`${ukey(prefix, id)}\u0000`));
 }
 
 /**
@@ -248,13 +286,16 @@ function settle(prefix, apps, r) {
 export async function runYearlyInstall({ prefix, app, name = app, version, label, allowUnverified = false,
                                          removePrevious = false, speechPacks = false }) {
   if (upd.jobs[prefix]) return null;
-  delete upd.outcomes[ukey(prefix, app)];
+  const major = majorOf(String(version));   // the new year's own row shows how its install went
+  clearOutcomes(prefix, app, major);
   upd.jobs[prefix] = { kind: "install", apps: [app], app, stage: "starting", pct: 0, msg: "", label };
   let r = null;
   try {
     r = await installApp({ app, method: "download", prefix, version, allowUnverified, removePrevious, speechPacks,
                            onEvent: (ev) => track(prefix, ev) });
-    upd.outcomes[ukey(prefix, app)] = outcomeFromInstall(r, { label, name });
+    // Installed: on the new year's own row. Not installed: there is no such row, so on the app.
+    const o = outcomeFromInstall(r, { label, name });
+    upd.outcomes[o.state === "installed" && major ? ykey(prefix, app, major) : ukey(prefix, app)] = o;
   } catch (e) {
     upd.outcomes[ukey(prefix, app)] = { state: "failed", message: String(e) };
   } finally {
@@ -272,4 +313,4 @@ export function targetLabels(rows, target = null) {
   return out;
 }
 
-export { ukey };
+export { ukey, ykey };

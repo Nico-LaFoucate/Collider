@@ -7,6 +7,9 @@
 
 /** Store key for one app in one prefix. Never the app id alone: two prefixes can hold the same app. */
 export const ukey = (prefix, id) => `${prefix}\u0000${id}`;
+/** The key of one YEAR of an app in a prefix (`major` = "26" for 26.x): two installed years of one app
+ *  each have their own update outcome. */
+export const ykey = (prefix, id, major) => `${ukey(prefix, id)}\u0000${major}`;
 /** A list key for one of Mud Hut's rows: one app can be installed in two yearly versions. */
 export const rowKey = (row) => `${row?.id}\u0000${row?.installed?.dir ?? row?.installed?.year ?? ""}`;
 
@@ -178,6 +181,34 @@ export function outcomeFromInstall(r, { label, name }) {
   return { state: "installed", label, message: parts.length ? parts.join(" ") : null, warn };
 }
 
+/** The major of the install an outcome is about ("26" from from/to 26.3 -> 26.5), or null when Mud Hut did not say. */
+export const outcomeMajor = (o) => majorOf(o?.from ?? o?.to) ?? o?.major ?? null;
+
+/** Can outcome `o` be about `row`'s install? Not when both name a year and they differ. */
+export function sameYear(o, row) {
+  const a = outcomeMajor(o), b = majorOf(row?.installed?.version);
+  return !a || !b || a === b;
+}
+
+/**
+ * The outcome to show for app `id` in `prefix` (`row`: Mud Hut's row for the install, when known).
+ * Outcomes are stored per year (`ykey`) when Mud Hut said which install they are about, else per app
+ * (`ukey`, e.g. "Close Premiere Pro first."), which then applies to every installed year.
+ */
+export function outcomeFor(outcomes, prefix, id, row, rows = null) {
+  const m = majorOf(row?.installed?.version);
+  const o = (m ? outcomes?.[ykey(prefix, id, m)] : undefined) ?? outcomes?.[ukey(prefix, id)];
+  if (o || !rows) return o;
+  // A new yearly version installed whose own row is not listed yet (the re-read has not come back, or
+  // failed): its "installed" shows on the app rather than nowhere. `rows`: Mud Hut's rows for the prefix.
+  const listedMajors = new Set(rows.filter((r) => r?.id === id).map((r) => majorOf(r.installed?.version)));
+  const base = `${ukey(prefix, id)}\u0000`;
+  for (const [k, v] of Object.entries(outcomes ?? {})) {
+    if (k.startsWith(base) && v?.state === "installed" && !listedMajors.has(k.slice(base.length))) return v;
+  }
+  return undefined;
+}
+
 /** An update this Collider did not watch, from Mud Hut's `last_update`. Only a failure is kept: a
  *  success already shows as the new installed version. */
 export function outcomeFromLastUpdate(lu) {
@@ -255,7 +286,8 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
     }
   }
 
-  const o = outcome ?? outcomeFromLastUpdate(listed([pstate?.last_update?.app], row) ? pstate.last_update : null);
+  const o = outcome ?? outcomeFromLastUpdate(listed([pstate?.last_update?.app], row) && sameYear(pstate.last_update, row)
+    ? pstate.last_update : null);
   const op = outcomePill(o);
   if (op) view.pills.push(op);
   view.outcomePill = op;   // on its own too, for views that list the update itself in words
@@ -302,8 +334,9 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
 
 // --- the Prefixes tab line -------------------------------------------------------------------
 
-/** The one-line Updates summary for a prefix. `outcomes`: { appId: outcome } for this prefix. */
-export function prefixSummary({ pstate, job, outcomes = {} }) {
+/** The one-line Updates summary for a prefix. `outcomeOf(row)`: this Collider's outcome for that row's
+ *  install (`outcomes`: { appId: outcome }, the older form, when it is not given). */
+export function prefixSummary({ pstate, job, outcomes = {}, outcomeOf = (r) => outcomes[r.id] }) {
   const act = activeUpdate(job, pstate);
   if (act) {
     const pct = typeof act.pct === "number" ? ` ${act.pct}%` : "";
@@ -313,8 +346,8 @@ export function prefixSummary({ pstate, job, outcomes = {} }) {
   if (!pstate) return { dot: "", text: "Not checked yet", action: null };
   if (pstate.ok === false) return { dot: "", text: prefixError(pstate), action: null };
   const apps = pstate.apps ?? [];
-  const stuck = apps.find((r) => (outcomes[r.id] ?? outcomeFromLastUpdate(
-    listed([pstate.last_update?.app], r) ? pstate.last_update : null))?.state === "incomplete");
+  const stuck = apps.find((r) => (outcomeOf(r) ?? outcomeFromLastUpdate(
+    listed([pstate.last_update?.app], r) && sameYear(pstate.last_update, r) ? pstate.last_update : null))?.state === "incomplete");
   if (stuck) return { dot: "bad", text: `The ${stuck.name} update stopped partway. Run it again.`,
                       action: { kind: "finish", id: stuck.id } };
   const { include, exclude } = updateAllPlan(apps);

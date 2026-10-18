@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import {
   ukey, upToSize, joinNames, majorOf, updateAllPlan, cardView, prefixSummary, readyCount,
   dialogModel, dialogAction, outcomeFromAppResult, outcomeFromTerminal, outcomeFromLastUpdate,
-  outcomeFromInstall, outcomeNote, SPEECH_LABEL, SPEECH_HELP, pickRow, rowKey,
+  outcomeFromInstall, outcomeNote, SPEECH_LABEL, SPEECH_HELP, pickRow, rowKey, ykey, outcomeFor, sameYear,
 } from "./updates-logic.js";
 import { readFileSync } from "node:fs";
 
@@ -340,4 +340,43 @@ test("two yearly versions of one app get distinct list keys and one id in Update
   const r26 = { id: "audition", installed: { year: 2026, dir: "Adobe Audition 2026" }, update: { to: "26.6.0.3", verified: true } };
   assert.notEqual(rowKey(r25), rowKey(r26));
   assert.deepEqual(dialogAction({ kind: "all", rows: [r25, r26] }, {}).apps, ["audition"]);
+});
+
+// --- two installed years of one app ---------------------------------------------------------------
+
+const au = (version, year) => ({ id: "audition", name: "Audition", installed: { version, year, label: version },
+                                 update: null, newer_unverified: null, new_major: null, related: [] });
+
+test("outcomeFor: a row takes its own year's outcome, else the app's, never the other year's", () => {
+  const outcomes = { [ykey("/p", "audition", "25")]: { state: "updated" }, [ukey("/q", "audition")]: { state: "refused" } };
+  assert.equal(outcomeFor(outcomes, "/p", "audition", au("25.6.4.2", 2025)).state, "updated");
+  assert.equal(outcomeFor(outcomes, "/p", "audition", au("26.1.0.1", 2026)), undefined);
+  assert.equal(outcomeFor(outcomes, "/q", "audition", au("26.1.0.1", 2026)).state, "refused", "no year named: every year");
+});
+
+test("Mud Hut's last_update failure shows only on the year it was about", () => {
+  const lu = { ok: false, app: "audition", state: "rolled_back", message: "Adobe's installer stopped.", from: "26.1.0.1", to: "26.2.0.9" };
+  const ps = { prefix: "/p", ok: true, apps_running: [], update_in_progress: null, last_update: lu,
+               apps: [au("25.3.0.40", 2025), au("26.1.0.1", 2026)] };
+  assert.equal(cardView({ row: ps.apps[1], id: "audition", name: "Audition", pstate: ps }).outcomePill?.text, "Update put back");
+  assert.equal(cardView({ row: ps.apps[0], id: "audition", name: "Audition", pstate: ps }).outcomePill, null);
+  assert.equal(sameYear({ from: null, to: null }, ps.apps[0]), true, "a result with no versions can be about any year");
+});
+
+test("prefixSummary asks for each row's own outcome", () => {
+  const ps = { prefix: "/p", ok: true, apps_running: [], update_in_progress: null, last_update: null,
+               apps: [au("25.3.0.40", 2025), au("26.1.0.1", 2026)] };
+  const outcomeOf = (r) => (r.installed.year === 2026 ? { state: "incomplete" } : undefined);
+  assert.equal(prefixSummary({ pstate: ps, outcomeOf }).dot, "bad");
+  assert.equal(prefixSummary({ pstate: ps, outcomeOf: () => undefined }).text, "Up to date");
+});
+
+test("outcomeFor: a new year's install shows on the app until its own row is listed", () => {
+  const outcomes = { [ykey("/p", "audition", "26")]: { state: "installed", label: "Audition 2026" },
+                     [ykey("/p", "audition", "24")]: { state: "updated" } };
+  const only25 = [au("25.3.0.40", 2025)];
+  assert.equal(outcomeFor(outcomes, "/p", "audition", only25[0], only25).state, "installed", "no 2026 row yet: on the app");
+  const both = [au("25.3.0.40", 2025), au("26.0.0.30", 2026)];
+  assert.equal(outcomeFor(outcomes, "/p", "audition", both[0], both), undefined, "the 2026 row is listed: only there");
+  assert.equal(outcomeFor(outcomes, "/p", "audition", both[1], both).state, "installed");
 });

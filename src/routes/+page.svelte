@@ -8,7 +8,7 @@
   import AppCard from "$lib/AppCard.svelte";
   import UpdateDialog from "$lib/UpdateDialog.svelte";
   import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
-           runUpdate, runYearlyInstall, targetLabels, anyJob, ukey } from "$lib/updates.svelte.js";
+           runUpdate, runYearlyInstall, targetLabels, anyJob, outcomeFor } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
            cardView, joinNames, installedLabel, targetLabel, upToSize, prefixError,
            SPEECH_APPS, SPEECH_LABEL, SPEECH_HELP, rowKey } from "$lib/updates-logic.js";
@@ -508,7 +508,7 @@
   // Mud Hut's own per-prefix sentence on the Prefixes tab.
   const summaryFor = (p) => prefixSummary({
     pstate: upd.prefixes[p], job: upd.jobs[p],
-    outcomes: Object.fromEntries((upd.prefixes[p]?.apps ?? []).map((a) => [a.id, upd.outcomes[ukey(p, a.id)]])),
+    outcomeOf: (r) => outcomeFor(p, r.id, r),
   });
   function onSummaryAction(p, act) {
     if (!act) return;
@@ -1121,7 +1121,7 @@
                     {/if}
                     {#each ps.apps ?? [] as row (rowKey(row))}
                       {@const cv = cardView({ row, id: row.id, name: row.name, pstate: ps, job: upd.jobs[p.path],
-                                               outcome: upd.outcomes[ukey(p.path, row.id)], neutronBusy })}
+                                               outcome: outcomeFor(p.path, row.id, row), neutronBusy })}
                       <div class="updv-row">
                         <div class="updv-main">
                           <div class="updv-name">{row.name} <span class="updv-ver">{installedLabel(row)}</span>

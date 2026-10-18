@@ -149,9 +149,10 @@ test("update: progress and per-app outcomes land in the store, the prefix is re-
   assert.equal(fake.calls[1][1].to, null);
   assert.deepEqual([seenJob.kind, seenJob.app, seenJob.stage, seenJob.pct], ["update", "premiere", "download", 42]);
   assert.equal(upd.jobs[P], undefined, "the job is gone afterwards");
-  assert.equal(upd.outcomes[ukey(P, "premiere")].state, "updated");
-  assert.equal(upd.outcomes[ukey(P, "premiere")].toLabel, "26.5.2");
-  assert.equal(upd.outcomes[ukey(P, "aftereffects")].state, "rolled_back");
+  const of = (id) => store.outcomeFor(P, id, store.rowFor(P, id));
+  assert.equal(of("premiere").state, "updated");
+  assert.equal(of("premiere").toLabel, "26.5.2");
+  assert.equal(of("aftereffects").state, "rolled_back");
   assert.deepEqual(fake.calls[2], ["check", [P], { maxAge: null, refresh: false, offline: true }]);
   assert.ok(changed.includes(P));
 });
@@ -162,7 +163,7 @@ test("update refused because an app runs: an outcome without failure, Mud Hut's 
                                apps_running: ["Premiere Pro"], message: "Close Premiere Pro first." });
   await store.runUpdate({ prefix: P, apps: ["premiere"], to: "26.5.2.3" });
   assert.equal(fake.calls.find((c) => c[0] === "update")[1].to, "26.5.2.3");
-  const o = upd.outcomes[ukey(P, "premiere")];
+  const o = store.outcomeFor(P, "premiere", store.rowFor(P, "premiere"));
   assert.equal(o.state, "refused");
   assert.equal(o.message, "Close Premiere Pro first.");
   assert.equal(o.prefixChanged, false);
@@ -216,8 +217,58 @@ test("yearly install: an install job, version and choices passed, outcome instal
   const args = fake.calls.find((c) => c[0] === "install")[1];
   assert.deepEqual([args.app, args.method, args.prefix, args.version, args.allowUnverified, args.removePrevious, args.speechPacks],
                    ["premiere", "download", P, "27", true, true, false]);
-  assert.deepEqual(upd.outcomes[ukey(P, "premiere")],
+  assert.deepEqual(store.outcomeFor(P, "premiere", { id: "premiere", installed: { version: "27.0.0.40" } }),
                    { state: "installed", label: "Premiere Pro 2027", message: "Removed Premiere Pro 26.3.0.12.", warn: false });
+});
+
+// Two yearly versions of one app side by side (Audition 2025 = 25.x, 2026 = 26.x): Mud Hut reports one row
+// and one result per install, all under the same app id. Each row must show its OWN install's result.
+const y25 = (extra = {}) => row("audition", "Audition", { installed: { version: "25.3.0.40", year: 2025, dir: "Adobe Audition 2025" },
+  update: { kind: "in_place", to: "25.6.4.2", label: "25.6.4", verified: true, download_bytes: 1, can_update: true }, ...extra });
+const y26 = (extra = {}) => row("audition", "Audition", { installed: { version: "26.1.0.1", year: 2026, dir: "Adobe Audition 2026" },
+  update: { kind: "in_place", to: "26.2.0.9", label: "26.2", verified: true, download_bytes: 1, can_update: true }, ...extra });
+
+test("two installed years, one run: each row shows its own install's result and label", async () => {
+  fake.check = () => result([pobj(P, [y25(), y26()])]);
+  await store.check([P]);
+  fake.update = async ({ onEvent }) => {
+    onEvent({ event: "app_result", app: "audition", ok: true, from: "25.3.0.40", to: "25.6.4.2" });
+    onEvent({ event: "app_result", app: "audition", ok: false, state: "rolled_back", from: "26.1.0.1", to: "26.2.0.9",
+              message: "Adobe's installer stopped." });
+    return { event: "result", ok: false, prefix: P, apps: [], exit: 7 };
+  };
+  await store.runUpdate({ prefix: P, apps: ["audition"], labels: store.targetLabels([y25(), y26()]) });
+  const o25 = store.outcomeFor(P, "audition", y25()), o26 = store.outcomeFor(P, "audition", y26());
+  assert.equal(o25.state, "updated");
+  assert.equal(o25.toLabel, "25.6.4", "the 2025 row's label is the build 2025 went to");
+  assert.equal(o26.state, "rolled_back", "the 2026 row keeps its own result, not 2025's");
+});
+
+test("a run for one year (--to) is about that year only, and leaves the other year's earlier result", async () => {
+  fake.check = () => result([pobj(P, [y25(), y26()])]);
+  await store.check([P]);
+  fake.update = async ({ onEvent }) => {
+    onEvent({ event: "app_result", app: "audition", ok: true, from: "25.3.0.40", to: "25.6.4.2" });
+    return { event: "result", ok: true, prefix: P, apps: [] };
+  };
+  await store.runUpdate({ prefix: P, apps: ["audition"], to: "25.6.4.2" });
+  fake.update = async () => ({ event: "error", ok: false, code: "app-running", exit: 3, prefix_changed: false,
+                               apps_running: ["Audition"], message: "Close Audition first." });
+  await store.runUpdate({ prefix: P, apps: ["audition"], to: "26.2.0.9" });
+  assert.equal(store.outcomeFor(P, "audition", y26()).state, "refused", "the refusal is about the 2026 run");
+  assert.equal(store.outcomeFor(P, "audition", y25()).state, "updated", "2025's earlier result stays");
+});
+
+test("a yearly install: success shows on the new year's row only; a failure shows on the app", async () => {
+  fake.check = () => result([pobj(P, [y25(), y26()])]);   // the re-read after the install lists the new year
+  fake.install = async () => ({ event: "result", ok: true, version: "26.0.0.30", removed_previous: [] });
+  await store.runYearlyInstall({ prefix: P, app: "audition", name: "Audition", version: "26", label: "Audition 2026" });
+  assert.equal(store.outcomeFor(P, "audition", y26()).state, "installed");
+  assert.equal(store.outcomeFor(P, "audition", y25()), undefined, "the 2025 row was not installed");
+  fake.check = () => result([pobj(P, [y25()])]);           // 2026 is not installed
+  fake.install = async () => { throw new Error("no network"); };
+  await store.runYearlyInstall({ prefix: P, app: "audition", name: "Audition", version: "26", label: "Audition 2026" });
+  assert.equal(store.outcomeFor(P, "audition", y25()).state, "failed", "no 2026 row exists, so the app shows it");
 });
 
 test("an update left running by an earlier Collider: followed until it finishes, then the page is told", async () => {

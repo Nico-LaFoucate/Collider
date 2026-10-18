@@ -4,7 +4,7 @@
   // color via --acrgb. Wired to the generic per-app command surface.
   import { launchApp, isAppAlive, cleanExitApp, forceQuitApp, adoptApp } from "$lib/api.js";
   import { onDestroy } from "svelte";
-  import { upd, ukey } from "$lib/updates.svelte.js";
+  import { upd, outcomeFor } from "$lib/updates.svelte.js";
   import { cardView, pickRow } from "$lib/updates-logic.js";
 
   // app = { id, name, accent, export, installed }; info = shared prefix info.
@@ -47,7 +47,7 @@
   const urow = $derived(pickRow(upd.prefixes[prefix]?.apps, app));
   const uv = $derived(cardView({
     row: urow, id: app.id, name: app.name, pstate: upd.prefixes[prefix], job: upd.jobs[prefix],
-    outcome: upd.outcomes[ukey(prefix, app.id)], appRunning: running || busy, neutronBusy,
+    outcome: outcomeFor(prefix, app.id, urow), appRunning: running || busy, neutronBusy,
   }));
   // An update (or yearly install) holds the whole prefix: launching would start wine in it while
   // Adobe's installer works there. A running app keeps its button (Force quit stays reachable).
