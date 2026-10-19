@@ -1,6 +1,6 @@
 <script>
   import { prefixInfo, doctor, listApps,
-           getSettings, setSettings, detectScale, getThemePresets, getIconSets,
+           getSettings, setSettings, settingsLocation, detectScale, getThemePresets, getIconSets,
            importIconSet, versions, neutronSetup, neutronUninstall,
            mudhutApps, installApp, workingPrefix,
            listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
@@ -260,6 +260,8 @@
     }
   }
 
+  // Where the settings live (core/xdg.rs): ~/.config/collider unless XDG_CONFIG_HOME moves it.
+  let settingsDir = $state(null);
   let settings = $state({ scale_mode: "auto", scale_value: 1.5,
                           theme: "dark", custom_colors: null, button_icon_set: "none" });
   let iconSets = $state([]);                                  // [{ id, label }] from the backend
@@ -421,6 +423,7 @@
 
   onMount(async () => {
     try { settings = await getSettings(); } catch (_) {}
+    try { settingsDir = await settingsLocation(); } catch (_) {}
     await loadVersions();
 
     // Resolve WHERE we're working before asking anything about it.
@@ -1326,7 +1329,7 @@
     <header>
       <div>
         <div class="title">Preferences</div>
-        <div class="subtitle">Collider settings · stored in ~/.config/collider</div>
+        <div class="subtitle">Collider settings{settingsDir ? ` · stored in ${settingsDir}` : ""}</div>
       </div>
     </header>
     <div class="scroll">

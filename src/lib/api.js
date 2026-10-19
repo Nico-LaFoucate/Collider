@@ -134,6 +134,12 @@ export async function getSettings() {
   return await invoke("get_settings");
 }
 
+/** The folder the settings live in, as the Preferences page shows it ("~/.config/collider"), or
+ *  null without HOME. Follows XDG_CONFIG_HOME, so it is not always ~/.config. */
+export async function settingsLocation() {
+  return await invoke("settings_location");
+}
+
 /** Persist settings from the Preferences tab. `settings` is merged onto the stored settings:
  *  a field left out keeps its stored value, and `prefixes`/`selected_prefix` are ignored (the
  *  Prefixes tab owns the registry). */

@@ -300,6 +300,13 @@ pub fn get_settings() -> Result<Settings, String> {
     Ok(crate::core::settings::load())
 }
 
+/// Where the settings live, for the Preferences page ("~/.config/collider", or the custom
+/// XDG_CONFIG_HOME folder). None without HOME.
+#[tauri::command]
+pub fn settings_location() -> Option<String> {
+    crate::core::settings::location()
+}
+
 /// Persist settings from the Preferences tab.
 ///
 /// The page's object is MERGED onto the stored settings (core::settings::merge_patch): a field it

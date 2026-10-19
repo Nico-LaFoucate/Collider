@@ -96,6 +96,20 @@ impl Default for Settings {
     }
 }
 
+/// The settings folder as the Preferences page shows it ("~/.config/collider"; a custom
+/// XDG_CONFIG_HOME shows its own path). The page used to say ~/.config/collider unconditionally.
+pub fn location() -> Option<String> {
+    let dir = crate::core::xdg::collider_config_dir()?;
+    Some(tilde(&dir, std::env::var_os("HOME").map(PathBuf::from).as_deref()))
+}
+
+fn tilde(dir: &std::path::Path, home: Option<&std::path::Path>) -> String {
+    match home.and_then(|h| dir.strip_prefix(h).ok()) {
+        Some(rest) if !rest.as_os_str().is_empty() => format!("~/{}", rest.display()),
+        _ => dir.display().to_string(),
+    }
+}
+
 fn config_path() -> Option<PathBuf> {
     Some(crate::core::xdg::collider_config_dir()?.join("config.json"))
 }
@@ -167,6 +181,14 @@ pub fn effective_scale() -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn location_shows_home_as_tilde() {
+        let home = std::path::Path::new("/home/u");
+        assert_eq!(tilde(std::path::Path::new("/home/u/.config/collider"), Some(home)), "~/.config/collider");
+        assert_eq!(tilde(std::path::Path::new("/srv/cfg/collider"), Some(home)), "/srv/cfg/collider");
+        assert_eq!(tilde(std::path::Path::new("/home/user2/collider"), Some(home)), "/home/user2/collider");
+    }
 
     // A config written by Collider 0.1.0, which still had the Premiere home-screen position
     // setting. Its keys are gone from Settings; the file must still load as the user's settings,

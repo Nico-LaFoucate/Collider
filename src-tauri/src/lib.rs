@@ -36,6 +36,7 @@ pub fn run() {
             commands::force_quit_app,
             commands::current_step_app,
             commands::get_settings,
+            commands::settings_location,
             commands::set_settings,
             commands::detect_scale,
             commands::get_theme_presets,
