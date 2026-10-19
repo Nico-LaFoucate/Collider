@@ -72,7 +72,8 @@ Inspect a prefix. Resolves and reports paths Collider needs.
   "neutron_stack": { "wine": "...", "dxvk": "...", "vkd3d": "..." }
 }
 ```
-`documents_real` is the symlink-resolved target. (Historical: it was the watch path of the
+`documents_real` is the symlink-resolved target, or `null` when the in-prefix Documents link is missing
+or unreachable; Collider never requires it. (Historical: it was the watch path of the
 retired hwmux daemon.) `neutron_stack.wine` is whatever `wine --version` prints.
 
 ### `neutron prefix apply-display-fix <path> [--json]`

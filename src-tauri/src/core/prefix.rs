@@ -2,9 +2,8 @@
 //
 // Prefix detection and path resolution. Delegates entirely to the Neutron CLI
 // (`neutron --json prefix info <path>`) — Collider stores the resolved pointers
-// but never computes them. This is where the §1.2 symlink lesson is enforced:
-// `documents_real` is the symlink-resolved target, and it (not the symlinked
-// prefix path) is what the hwmux daemon must watch.
+// but never computes them. `documents_real` is the symlink-resolved target the
+// hwmux daemon used to watch; hwmux is gone, so it is informational and may be null.
 //
 // Struct reconciled against the shipped CLI (COLLIDER_INTEGRATION_HANDOFF.md):
 // stable fields are typed directly; the provisional `neutron_stack` is kept as
@@ -23,9 +22,12 @@ pub struct PrefixInfo {
     pub user: String,
     /// The symlink path inside the prefix. Do NOT watch this with inotify.
     pub documents_symlink: PathBuf,
-    /// The resolved real target. Watch THIS for hwmux; carry verbatim into
-    /// `hwmux start --watch`. See handoff "path-resolution flow".
-    pub documents_real: PathBuf,
+    /// The resolved real target, or None when the in-prefix Documents link is
+    /// missing or points somewhere this user cannot reach (the CLI sends null).
+    /// Nothing reads it since hwmux went away; it must never block a launch
+    /// (#29: "resolving: invalid type: null, expected path string").
+    #[serde(default)]
+    pub documents_real: Option<PathBuf>,
     /// Live Debug Database.txt the display fix writes to (CLI globs the
     /// versioned dir and excludes .bak — we don't hardcode the version).
     pub debug_database: Option<PathBuf>,
@@ -52,4 +54,20 @@ impl PrefixInfo {
         Ok(parsed)
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn null_documents_real_still_parses() {
+        let v = serde_json::json!({
+            "valid": true, "wineprefix": "/p", "drive_c": "/p/drive_c", "user": "u",
+            "documents_symlink": "/p/drive_c/users/u/Documents", "documents_real": null,
+            "debug_database": null, "display_fix_applied": false, "neutron_stack": null,
+        });
+        let info: PrefixInfo = serde_json::from_value(v).expect("a null documents_real must parse");
+        assert!(info.valid && info.documents_real.is_none());
+    }
 }
