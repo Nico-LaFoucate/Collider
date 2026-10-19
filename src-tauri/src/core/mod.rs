@@ -7,3 +7,4 @@ pub mod settings;
 pub mod decoration;
 pub mod theme;
 pub mod caption_icons;
+pub mod xdg;

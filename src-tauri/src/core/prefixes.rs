@@ -111,8 +111,8 @@ pub fn discover() -> Vec<String> {
         h.clone(),
         h.join("Neutron-Prefixes"),
         h.join("Neutron"),
-        h.join(".local/share/neutron/prefixes"),
     ];
+    roots.extend(crate::core::xdg::data_home().map(|d| d.join("neutron/prefixes")));
     roots.retain(|r| r.is_dir());
 
     let mut found = Vec::new();

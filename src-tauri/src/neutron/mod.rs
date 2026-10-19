@@ -258,7 +258,7 @@ pub fn setup_stream(update: bool, on_event: impl FnMut(Value)) -> anyhow::Result
 }
 
 /// The CLI to run setup with: `neutron` on PATH, else the CLI from the neutron repo's latest
-/// GitHub release, downloaded to ~/.local/share/neutron/bin/neutron and checked against that
+/// GitHub release, downloaded to $XDG_DATA_HOME/neutron/bin/neutron and checked against that
 /// release's SHA256SUMS. `neutron setup` then links it onto PATH.
 fn bootstrap_cli() -> anyhow::Result<String> {
     let on_path = Command::new("sh").args(["-c", "command -v neutron"]).output()
@@ -266,8 +266,7 @@ fn bootstrap_cli() -> anyhow::Result<String> {
     if on_path {
         return Ok("neutron".into());
     }
-    let home = std::env::var("HOME").context("no HOME")?;
-    let dir = std::path::Path::new(&home).join(".local/share/neutron/bin");
+    let dir = crate::core::xdg::data_home().context("no HOME")?.join("neutron/bin");
     std::fs::create_dir_all(&dir)?;
     let base = "https://github.com/Nico-LaFoucate/neutron/releases/latest/download";
     let part = dir.join("neutron.part");

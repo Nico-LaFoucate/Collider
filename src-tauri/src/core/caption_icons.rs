@@ -51,7 +51,7 @@ fn bundled(id: &str) -> Option<IconSet> {
 }
 
 /// A folder holding the set's close/min/max/restore .ico files, for `neutron theme icons
-/// --from`: bundled sets are written out to ~/.cache/collider/caption-icons/<id>/, the imported
+/// --from`: bundled sets are written out to $XDG_CACHE_HOME/collider/caption-icons/<id>/, the imported
 /// set is its own folder. Ok(None) for "none" (Wine's default glyphs).
 pub fn materialize(id: &str) -> Result<Option<std::path::PathBuf>, String> {
     if id == "none" || id.is_empty() {
@@ -65,8 +65,7 @@ pub fn materialize(id: &str) -> Result<Option<std::path::PathBuf>, String> {
         return Ok(Some(dir));
     }
     let set = bundled(id).ok_or_else(|| format!("unknown icon set: {id}"))?;
-    let home = std::env::var_os("HOME").ok_or("no HOME")?;
-    let dir = Path::new(&home).join(".cache/collider/caption-icons").join(id);
+    let dir = crate::core::xdg::cache_home().ok_or("no HOME")?.join("collider/caption-icons").join(id);
     std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
     for (name, bytes) in set {
         std::fs::write(dir.join(name), bytes).map_err(|e| format!("write {name}: {e}"))?;
@@ -118,10 +117,9 @@ pub fn preview_data_uri(id: &str) -> Option<String> {
     ))
 }
 
-/// Directory where imported custom .ico files are stored (~/.config/collider/caption-custom).
+/// Directory where imported custom .ico files are stored (caption-custom in Collider's settings folder).
 pub fn custom_set_dir() -> Option<std::path::PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(Path::new(&home).join(".config/collider/caption-custom"))
+    Some(crate::core::xdg::collider_config_dir()?.join("caption-custom"))
 }
 
 /// Import a user icon set from `src_dir`: looks for close/min/max/restore as `.ico`

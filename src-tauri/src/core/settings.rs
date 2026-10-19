@@ -1,6 +1,6 @@
 // core/settings.rs
 //
-// Persisted Collider settings (~/.config/collider/config.json). Loaded at the
+// Persisted Collider settings ($XDG_CONFIG_HOME/collider/config.json, see core/xdg.rs). Loaded at the
 // start of a launch and editable from the Preferences tab. Designed to grow:
 // the neutron path, export-folder persistence, GPU mode, etc. land here later.
 //
@@ -97,8 +97,7 @@ impl Default for Settings {
 }
 
 fn config_path() -> Option<PathBuf> {
-    let home = std::env::var_os("HOME")?;
-    Some(PathBuf::from(home).join(".config/collider/config.json"))
+    Some(crate::core::xdg::collider_config_dir()?.join("config.json"))
 }
 
 /// Load settings; defaults if the file is absent or unreadable/corrupt (never panics).
@@ -115,7 +114,7 @@ fn parse(json: &str) -> Settings {
     serde_json::from_str(json).unwrap_or_default()
 }
 
-/// Persist settings, creating ~/.config/collider/ if needed.
+/// Persist settings, creating the settings folder if needed.
 pub fn save(s: &Settings) -> std::io::Result<()> {
     let Some(p) = config_path() else {
         return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no HOME directory"));

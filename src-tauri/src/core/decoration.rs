@@ -130,8 +130,8 @@ fn apply_button_icons(prefix: &str) -> Result<(), String> {
 // ---- 2. overlay-positioning KWin script -----------------------------------
 
 fn install_kwin_script() -> Result<(), String> {
-    let home = std::env::var("HOME").map_err(|_| "no HOME".to_string())?;
-    let base = format!("{home}/.local/share/kwin/scripts/{SCRIPT_ID}");
+    let data = crate::core::xdg::data_home().ok_or_else(|| "no HOME".to_string())?;
+    let base = format!("{}/kwin/scripts/{SCRIPT_ID}", data.display());
     let code = format!("{base}/contents/code");
     std::fs::create_dir_all(&code).map_err(|e| format!("mkdir {code}: {e}"))?;
     std::fs::write(format!("{base}/metadata.json"), KWIN_METADATA)
