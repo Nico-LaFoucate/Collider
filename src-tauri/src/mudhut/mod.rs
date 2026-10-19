@@ -436,8 +436,29 @@ fn update_stream_with(
 pub(crate) mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Create the executable `path` holding `content`, written by a child `sh` rather than by
+    /// this process.
+    ///
+    /// The tests run on parallel threads, and each one forks to start its own fake. A fork that
+    /// lands while this process has `path` open for writing hands the child a copy of that
+    /// descriptor (O_CLOEXEC only closes it at the child's exec), and until the child gets there,
+    /// executing `path` fails with ETXTBSY, "Text file busy". Writing a temp name and renaming it
+    /// into place would not help: the leaked descriptor follows the inode, not the name. The
+    /// `sh` below holds the only writable descriptor `path` ever has, nothing else can inherit it,
+    /// and it has exited by the time this returns.
+    pub(crate) fn write_executable(path: &Path, content: &str) {
+        let st = Command::new("/bin/sh")
+            .args(["-c", "printf '%s' \"$1\" > \"$0\""])
+            .arg(path)
+            .arg(content)
+            .status()
+            .unwrap();
+        assert!(st.success(), "could not write {}", path.display());
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
 
     /// A fake `mudhut` (a /bin/sh script) in its own temp dir. It records its argv, one argument
     /// per line, in `<dir>/args` before running `script`. Dropping it removes the dir.
@@ -450,7 +471,7 @@ pub(crate) mod tests {
             std::fs::remove_dir_all(&self.dir).ok();
         }
     }
-    pub(crate) fn fake(script: &str) -> Fake {
+    fn fake_dir() -> PathBuf {
         static N: AtomicU32 = AtomicU32::new(0);
         let dir = std::env::temp_dir().join(format!(
             "collider-fake-mudhut-{}-{}",
@@ -458,29 +479,29 @@ pub(crate) mod tests {
             N.fetch_add(1, Ordering::SeqCst)
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+    /// The fake in `dir`, written once, whole (see `write_executable`).
+    fn fake_in(dir: PathBuf, script: &str) -> Fake {
         let path = dir.join("mudhut");
         let args = dir.join("args");
-        std::fs::write(
+        write_executable(
             &path,
-            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n{script}", args.display()),
-        )
-        .unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            &format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n{script}", args.display()),
+        );
         Fake { bin: path.to_string_lossy().into_owned(), dir }
+    }
+    pub(crate) fn fake(script: &str) -> Fake {
+        fake_in(fake_dir(), script)
     }
     /// A fake that prints `stdout` verbatim (from a data file, so JSON needs no shell quoting),
     /// writes `stderr` to stderr, and exits with `exit`.
     pub(crate) fn fake_output(stdout: &str, stderr: &str, exit: i32) -> Fake {
-        let f = fake("");
-        std::fs::write(f.dir.join("out"), stdout).unwrap();
-        std::fs::write(f.dir.join("err"), stderr).unwrap();
-        let script = std::fs::read_to_string(&f.bin).unwrap()
-            + &format!(
-                "cat '{0}/out'\ncat '{0}/err' >&2\nexit {exit}\n",
-                f.dir.display()
-            );
-        std::fs::write(&f.bin, script).unwrap();
-        f
+        let dir = fake_dir();
+        std::fs::write(dir.join("out"), stdout).unwrap();
+        std::fs::write(dir.join("err"), stderr).unwrap();
+        let script = format!("cat '{0}/out'\ncat '{0}/err' >&2\nexit {exit}\n", dir.display());
+        fake_in(dir, &script)
     }
     /// The argv the fake was called with.
     pub(crate) fn argv(f: &Fake) -> Vec<String> {

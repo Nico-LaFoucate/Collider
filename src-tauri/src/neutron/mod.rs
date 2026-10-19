@@ -445,7 +445,7 @@ fn pid_from(v: &Value) -> anyhow::Result<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
+    use crate::mudhut::tests::write_executable;
 
     /// A fake `neutron` whose stdout carries a line in Windows code page 850, as Wine prints it on
     /// a French system (Neutron#11). The stream must skip it and still reach the `result`.
@@ -454,15 +454,14 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("collider-fake-neutron-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let fake = dir.join("neutron");
-        std::fs::write(
+        // Written by a child process: see `write_executable` for the ETXTBSY race it avoids.
+        write_executable(
             &fake,
             "#!/bin/sh\n\
              echo '{\"event\":\"progress\",\"step\":\"wineboot\"}'\n\
              printf 'reg\\377: le syst\\212me n'\"'\"'a pas pu trouver la valeur\\r\\n'\n\
              echo '{\"event\":\"result\",\"ok\":true}'\n",
-        )
-        .unwrap();
-        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        );
 
         let mut seen = Vec::new();
         let r = run_stream_with(fake.to_str().unwrap(), &["prefix", "provision"], |v| {
