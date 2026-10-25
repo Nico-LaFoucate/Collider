@@ -16,9 +16,10 @@ export function versionChoice(plan) {
   };
 }
 
-/** A plan that failed because Adobe offers no build Neutron has tested (Mud Hut's "unverified"
- *  refusal) -> { tested: null, newest: { label: null } }: the only choice is the untested build.
+/** A plan that failed because Adobe offers no build Neutron has tested (Mud Hut's error event with
+ *  `code: "unverified"`; matched by code, so rewording the sentence cannot break it)
+ *  -> { tested: null, newest: { label: null } }: the only choice is the untested build.
  *  Any other failure -> null (shown as an error). */
-export function untestedOnlyChoice(message) {
-  return /hasn't verified/.test(String(message ?? "")) ? { tested: null, newest: { label: null } } : null;
+export function untestedOnlyChoice(error) {
+  return error?.code === "unverified" ? { tested: null, newest: { label: null } } : null;
 }

@@ -229,13 +229,15 @@
     if (mhMethod !== "download") { startInstall(app); return; }
     mhPlanning = app;
     let choice = null;
+    let refusal = null;   // Mud Hut's error event, if the plan fails
     try {
-      choice = versionChoice(await installApp({ app: app.id, method: "download", prefix: mhTarget, dryRun: true }));
-    } catch (e) {
+      choice = versionChoice(await installApp({ app: app.id, method: "download", prefix: mhTarget, dryRun: true,
+                                                onEvent: (ev) => { if (ev.event === "error") refusal = ev; } }));
+    } catch {
       // Only Mud Hut's "nothing tested is offered" changes the flow. Any other failure (an older
       // Mud Hut without the plan's fields, a network hiccup) installs as before; the install
       // itself reports a real problem in Mud Hut's words.
-      choice = untestedOnlyChoice(e);
+      choice = untestedOnlyChoice(refusal);
     }
     if (mhPlanning !== app) return;        // the user left the screen meanwhile
     mhPlanning = null;
@@ -561,7 +563,7 @@
       const size = upToSize(u.download_bytes);   // an upper bound (see upToSize)
       return `Update to ${targetLabel(u)}${size ? ` · ${size}` : ""}`;
     }
-    if (u) return `${targetLabel(u)} is available · not yet verified by Neutron`;
+    if (u) return `${targetLabel(u)} is available · not yet tested by Neutron`;
     return "Up to date";
   }
   // What else a row offers besides its main button: a newer build Neutron has not verified, and a
@@ -569,7 +571,7 @@
   function rowExtras(row) {
     const out = [];
     if (row.newer_unverified && row.update?.to !== row.newer_unverified.to) {
-      out.push({ text: `Also available: ${targetLabel(row.newer_unverified)}, not yet verified by Neutron`,
+      out.push({ text: `Also available: ${targetLabel(row.newer_unverified)}, not yet tested by Neutron`,
                  label: `Update to ${targetLabel(row.newer_unverified)}…`, action: "unverified-newer" });
     }
     if (row.new_major && row.update) {
@@ -862,7 +864,7 @@
       <div class="head-actions">
         {#if prefixValid && allPlan.include.length > 1 && !prefixActive(prefix)}
           <button class="ghost upd-all" disabled={neutronBusy}
-                  title={neutronBusy ? "Wait for the Neutron update to finish." : "Update every app that has a verified update"}
+                  title={neutronBusy ? "Wait for the Neutron update to finish." : "Update every app that has a tested update"}
                   onclick={() => openUpdate(prefix, "all")}>Update all ({allPlan.include.length})</button>
         {/if}
         <button class="ghost" onclick={refresh} disabled={refreshing}>↻ Refresh</button>
@@ -1520,7 +1522,7 @@
           </label>
           <div class="pref-desc muted" style="margin:6px 0 0;">
             If an update fails, the backup copy is put back automatically. Neutron recommends the
-            versions it has verified; newer ones show as “not yet verified”, and you can still
+            versions it has tested; newer ones show as “not yet tested”, and you can still
             update to them.
           </div>
         </div>

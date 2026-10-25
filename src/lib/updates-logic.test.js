@@ -118,7 +118,7 @@ test("card: an update left running by an earlier Collider (update_in_progress) l
 
 test("card: an unverified build and a yearly version", () => {
   const v = cardView({ row: photoshopUnverified(), pstate: pstate([photoshopUnverified()]) });
-  assert.equal(v.pills[0].text, "27.1 available · not yet verified");
+  assert.equal(v.pills[0].text, "27.1 available · not yet tested");
   assert.deepEqual([v.button.label, v.button.action], ["Update…", "unverified"]);
   const yearlyOnly = { ...premiere(), update: null };
   const y = cardView({ row: yearlyOnly, pstate: pstate([yearlyOnly]) });
@@ -170,7 +170,7 @@ test("prefix summary line", () => {
   assert.deepEqual(prefixSummary({ pstate: pstate([premiere(), upToDate()]) }),
                    { dot: "warn", text: "Premiere Pro 26.5.2 is available", action: { kind: "update", id: "premiere" } });
   assert.equal(prefixSummary({ pstate: pstate([premiere(), aftereffects()]) }).text, "2 updates available");
-  assert.equal(prefixSummary({ pstate: pstate([photoshopUnverified()]) }).text, "1 update not yet verified by Neutron");
+  assert.equal(prefixSummary({ pstate: pstate([photoshopUnverified()]) }).text, "1 update not yet tested by Neutron");
   assert.equal(prefixSummary({ pstate: pstate([premiere()]), outcomes: { premiere: { state: "incomplete" } } }).dot, "bad");
   const job = { kind: "update", apps: ["premiere"], app: "premiere", stage: "download", pct: 42 };
   assert.equal(prefixSummary({ pstate: pstate([premiere()]), job }).text, "Updating Premiere Pro… 42%");
@@ -208,20 +208,21 @@ test("dialog: update all lists what it covers and what it leaves out", () => {
   assert.deepEqual(m.items, ["Premiere Pro 26.3.0.12 → 26.5.2", "After Effects 26.3.0.5 → 26.5"]);
   assert.equal(m.lines[0], "They update one after another, up to 2.6 GB to download in total.");
   assert.equal(m.lines[1], "Keep every Adobe app in “Adobe 2026” closed until all of them finish.");
-  assert.equal(m.lines[3], "Not included: Photoshop 27.1, which Neutron hasn't verified yet. You can update it on its own.");
+  assert.equal(m.lines[3], "Not included: Photoshop 27.1, which is not yet tested by Neutron. You can update it on its own.");
   assert.equal(m.confirm, "Update all");
 });
 
 test("dialog: a build Neutron has not verified", () => {
   const row = premiere();
   const m = dialogModel({ kind: "unverified", row, target: row.newer_unverified }, { prefixName: "Adobe 2026" });
-  assert.equal(m.title, "Neutron hasn't verified Premiere Pro 26.6 yet.");
-  assert.equal(m.lines[1], "Premiere Pro 26.5.2 is verified, if you'd rather update to that.");
+  assert.equal(m.title, "Premiere Pro 26.6 is not yet tested by Neutron.");
+  assert.equal(m.lines[0], "There may be issues we are currently unaware of.");
+  assert.equal(m.lines[1], "Premiere Pro 26.5.2 is tested by Neutron, if you'd rather update to that.");
   assert.equal(m.lines[2], "Premiere Pro 26.3.0.12 → 26.6, downloaded from Adobe.");
   assert.deepEqual([m.confirm, m.cancel], ["Update anyway", "Wait"]);
   const ps = photoshopUnverified();
   const p = dialogModel({ kind: "unverified", row: ps, target: ps.update }, { prefixName: "Adobe 2026" });
-  assert.equal(p.lines[1], "Once Neutron has verified it, it shows here as a normal update.");
+  assert.equal(p.lines[1], "Once Neutron has tested it, it shows here as a normal update.");
   assert.match(p.lines[2], /up to 900 MB/);
 });
 
@@ -229,7 +230,7 @@ test("dialog: a yearly version, with remove-previous and (Premiere Pro, Media En
   const m = dialogModel({ kind: "yearly", row: premiere() }, { prefixName: "Adobe 2026" });
   assert.equal(m.title, "Install Premiere Pro 2027?");
   assert.equal(m.lines[1], "It installs next to Premiere Pro 2026, which stays as it is unless you choose to remove it.");
-  assert.ok(m.lines.includes("Neutron hasn't verified Premiere Pro 2027 yet. It might not open, or parts of it might not work."));
+  assert.ok(m.lines.includes("Premiere Pro 2027 is not yet tested by Neutron. There may be issues we are currently unaware of."));
   assert.deepEqual(m.options.map((o) => [o.key, o.value]), [["removePrevious", false], ["speechPacks", false]]);
   assert.equal(m.options[1].label, SPEECH_LABEL);
   assert.equal(SPEECH_LABEL, "Speech-to-text languages (about 14.5 GB)", "Mud Hut measured 14.49 GB per app");
@@ -303,7 +304,7 @@ test("the real Mud Hut output (3c6e464) renders: sizes are upper bounds, never c
   const prem = ae.apps.find((a) => a.id === "premiere");
   assert.equal(prem.update.verified, false);
   const card = cardView({ row: prem, pstate: ae });
-  assert.equal(card.pills[0].text, "26.5.2 available · not yet verified");
+  assert.equal(card.pills[0].text, "26.5.2 available · not yet tested");
   const unv = dialogModel({ kind: "unverified", row: prem, target: prem.update }, { prefixName: "AE2026" });
   assert.ok(unv.lines.includes("Premiere Pro 26.3 → 26.5.2, downloaded from Adobe (up to 4 GB)."), unv.lines.join("|"));
   const lr = ae.apps.find((a) => a.id === "lightroom");

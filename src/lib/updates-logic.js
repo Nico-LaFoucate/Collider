@@ -325,8 +325,8 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
   if (u) {
     view.pills.push(u.verified === true
       ? { text: `Update ${installedLabel(row)} → ${targetLabel(u)}`, cls: "warn" }
-      : { text: `${targetLabel(u)} available · not yet verified`, cls: "",
-          title: "Neutron hasn't verified this version yet. You can still update to it." });
+      : { text: `${targetLabel(u)} available · not yet tested`, cls: "",
+          title: "Not yet tested by Neutron. There may be issues we are currently unaware of. You can still update to it." });
   }
   if (nm) {
     view.pills.push({ text: `${nm.label ?? nm.year} version available`, cls: "",
@@ -381,8 +381,8 @@ export function prefixSummary({ pstate, job, outcomes = {}, outcomeOf = (r) => o
   if (include.length > 1) return { dot: "warn", text: `${include.length} updates available`, action: { kind: "all" } };
   const unverified = exclude.filter((e) => e.unverified).length;
   if (unverified) {
-    return { dot: "", text: unverified === 1 ? "1 update not yet verified by Neutron"
-                                             : `${unverified} updates not yet verified by Neutron`,
+    return { dot: "", text: unverified === 1 ? "1 update not yet tested by Neutron"
+                                             : `${unverified} updates not yet tested by Neutron`,
              action: { kind: "view" } };
   }
   const majors = apps.filter((r) => r.new_major);
@@ -470,7 +470,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     m.lines.push(snapshotLine(snapshot));
     for (const e of req.excluded ?? []) {
       m.lines.push(e.unverified
-        ? `Not included: ${e.row.name} ${targetLabel(e.row.update)}, which Neutron hasn't verified yet. You can update it on its own.`
+        ? `Not included: ${e.row.name} ${targetLabel(e.row.update)}, which is not yet tested by Neutron. You can update it on its own.`
         : `Not included: ${e.row.name}.${e.why ? ` ${e.why}` : ""}`);
     }
     m.confirm = "Update all";
@@ -478,12 +478,12 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     const t = req.target;
     // Mud Hut sizes only its recommended target (`update`); a newer build gets no figure.
     const size = t === row.update ? upToSize(row.update?.download_bytes) : null;
-    m.title = `Neutron hasn't verified ${name} ${targetLabel(t)} yet.`;
-    m.lines.push("It might not open, or parts of it might not work, until Neutron is updated for it.");
+    m.title = `${name} ${targetLabel(t)} is not yet tested by Neutron.`;
+    m.lines.push("There may be issues we are currently unaware of.");
     if (row.update?.verified === true && row.update.to !== t.to) {
-      m.lines.push(`${name} ${targetLabel(row.update)} is verified, if you'd rather update to that.`);
+      m.lines.push(`${name} ${targetLabel(row.update)} is tested by Neutron, if you'd rather update to that.`);
     } else {
-      m.lines.push("Once Neutron has verified it, it shows here as a normal update.");
+      m.lines.push("Once Neutron has tested it, it shows here as a normal update.");
     }
     m.lines.push(`${name} ${installedLabel(row)} → ${targetLabel(t)}, downloaded from Adobe${size ? ` (${size})` : ""}.`);
     if (row.update?.adopt === true) m.lines.push(ADOPT_LINE);
@@ -505,7 +505,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     }
     m.lines.push(`Projects saved in ${name} ${year} might not open in ${have}.`);
     if (nm.verified !== true) {
-      m.lines.push(`Neutron hasn't verified ${name} ${year} yet. It might not open, or parts of it might not work.`);
+      m.lines.push(`${name} ${year} is not yet tested by Neutron. There may be issues we are currently unaware of.`);
     }
     m.lines.push(`Keep every Adobe app in “${prefixName}” closed until it finishes.`);
     if (SPEECH_APPS.includes(row.id)) {

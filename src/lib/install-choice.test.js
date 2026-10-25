@@ -23,7 +23,10 @@ test("a plan from an older Mud Hut (no verified field) installs as before", () =
 });
 
 test("Mud Hut's refusal when nothing tested is offered leaves only the untested build", () => {
-  assert.deepEqual(untestedOnlyChoice("Neutron hasn't verified Premiere Pro 2027 yet. It may not open, or parts of it may not work. To install it anyway, confirm (--allow-unverified)."),
-                   { tested: null, newest: { label: null } });
-  assert.equal(untestedOnlyChoice("fetching product feed: connection refused"), null);
+  // Mud Hut's error event (2026-10-24 wording; the match is on `code`).
+  const refusal = { event: "error", code: "unverified", exit: 1, prefix_changed: false, to: "27.0.0.40",
+                    message: "Premiere Pro 2027 is not yet tested by Neutron. There may be issues we are currently unaware of. To install it anyway, confirm (--allow-unverified)." };
+  assert.deepEqual(untestedOnlyChoice(refusal), { tested: null, newest: { label: null } });
+  assert.equal(untestedOnlyChoice({ event: "error", code: "network", message: "fetching product feed: connection refused" }), null);
+  assert.equal(untestedOnlyChoice(null), null, "an older Mud Hut, or a failure with no error event");
 });

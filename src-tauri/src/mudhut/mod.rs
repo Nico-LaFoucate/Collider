@@ -925,7 +925,7 @@ pub(crate) mod tests {
         let o = InstallOpts { allow_unverified: false, ..o };
         let e = install_stream_with(&bin, "audition", "download", &prefix, None, &o, &mut |_| {}).unwrap_err();
         println!("without --allow-unverified: {e}");
-        assert!(e.to_string().contains("hasn't verified"), "{e}");
+        assert!(e.to_string().contains("is not yet tested by Neutron"), "{e}");
     }
 
     #[test]
