@@ -52,6 +52,11 @@
   // An update (or yearly install) holds the whole prefix: launching would start wine in it while
   // Adobe's installer works there. A running app keeps its button (Force quit stays reachable).
   const launchLocked = $derived(!!uv.launchLock && !running);
+  // The two notes under the card. While Mud Hut changes the prefix, a waiting Update button's reason
+  // is the same "Wait for ... to finish." as the locked Launch: say it once.
+  const lockNote = $derived(launchLocked && !uv.progress ? uv.launchLock : null);
+  const reasonNote = $derived(uv.button?.reason && urow?.update?.can_update === false
+    && uv.button.reason !== lockNote ? uv.button.reason : null);
   // `busy` covers EVERY in-flight action, so a single "Launching…" label lied during a quit —
   // the user watched the button say "Launching…" while the app shut down. Name the action.
   let action = $state(null);   // "launch" | "quit" | null
@@ -201,12 +206,12 @@
               onclick={() => onupdate?.(uv.button.action, urow)}>{uv.button.label}</button>
     {/if}
   </div>
-  {#if launchLocked && !uv.progress}
+  {#if lockNote}
     <!-- Another app in this prefix is updating: say why Launch is grey, not just in a tooltip. -->
-    <div class="card-note lock-note">{uv.launchLock}</div>
+    <div class="card-note lock-note">{lockNote}</div>
   {/if}
-  {#if uv.button?.reason && urow?.update?.can_update === false}
-    <div class="card-note">{uv.button.reason}</div>
+  {#if reasonNote}
+    <div class="card-note">{reasonNote}</div>
   {/if}
 </article>
 
