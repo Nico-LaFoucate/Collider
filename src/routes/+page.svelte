@@ -6,6 +6,7 @@
            listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
            selectPrefix, provisionPrefix, fontsCheck, fontsRepair } from "$lib/api.js";
   import AppCard from "$lib/AppCard.svelte";
+  import { versionChoice, untestedOnlyChoice, UNTESTED_HELP } from "$lib/install-choice.js";
   import UpdateDialog from "$lib/UpdateDialog.svelte";
   import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
            runUpdate, runYearlyInstall, targetLabels, anyJob, outcomeFor } from "$lib/updates.svelte.js";
@@ -154,8 +155,8 @@
     mhScan.phase === "done" && mhScan.kind !== null &&
     (mhMethod === "windows" || mhMethod === "offline") && mhScan.kind !== mhMethod);
 
-  function openMudHut() { view = "mudhut"; mhMethod = null; mhConfirm = null; resetInstall(); resetSource(); }
-  function backToMethods() { mhMethod = null; mhConfirm = null; resetInstall(); resetSource(); }
+  function openMudHut() { view = "mudhut"; mhMethod = null; mhConfirm = null; mhPlanning = null; resetInstall(); resetSource(); }
+  function backToMethods() { mhMethod = null; mhConfirm = null; mhPlanning = null; resetInstall(); resetSource(); }
   function resetInstall() {
     mhInstall = { phase: "pick", app: null, name: null, stage: "", pct: 0, msg: "", error: null };
   }
@@ -217,14 +218,35 @@
   // The speech-to-text languages (Premiere Pro and Media Encoder, about 14.5 GB) are a choice,
   // off by default as in Creative Cloud (DECISIONS C70), so those downloads stop at a confirm
   // step first.
-  let mhConfirm = $state(null);      // the catalog app awaiting that choice
+  // A download install also offers a choice of version when Adobe has a newer build than the newest
+  // one Neutron has tested (his call, 2026-10-24): the tested one is the default, the newer one is
+  // the user's informed choice. Mud Hut's plan (a dry run, nothing downloaded) says which applies.
+  let mhConfirm = $state(null);      // the catalog app awaiting a choice, with `choice` (install-choice.js)
   let mhSpeech = $state(false);
-  function pickInstall(app) {
-    if (mhMethod === "download" && SPEECH_APPS.includes(app.id)) { mhConfirm = app; mhSpeech = false; }
-    else startInstall(app);
+  let mhVersion = $state("tested");  // "tested" | "newest"
+  let mhPlanning = $state(null);     // the app whose plan is being fetched
+  async function pickInstall(app) {
+    if (mhMethod !== "download") { startInstall(app); return; }
+    mhPlanning = app;
+    let choice = null;
+    try {
+      choice = versionChoice(await installApp({ app: app.id, method: "download", prefix: mhTarget, dryRun: true }));
+    } catch (e) {
+      // Only Mud Hut's "nothing tested is offered" changes the flow. Any other failure (an older
+      // Mud Hut without the plan's fields, a network hiccup) installs as before; the install
+      // itself reports a real problem in Mud Hut's words.
+      choice = untestedOnlyChoice(e);
+    }
+    if (mhPlanning !== app) return;        // the user left the screen meanwhile
+    mhPlanning = null;
+    if (choice || SPEECH_APPS.includes(app.id)) {
+      mhConfirm = { ...app, choice };
+      mhSpeech = false;
+      mhVersion = choice?.tested ? "tested" : "newest";
+    } else startInstall(app);
   }
 
-  async function startInstall(app, { speechPacks = false } = {}) {
+  async function startInstall(app, { speechPacks = false, allowUnverified = false } = {}) {
     mhConfirm = null;
     const method = mhMethod;
     // download resolves from Adobe; windows/offline install from the scanned source.
@@ -232,7 +254,7 @@
     mhInstall = { phase: "installing", app: app.id, name: app.name, stage: "starting", pct: 0, msg: "", error: null };
     try {
       const r = await installApp({
-        app: app.id, method, prefix: mhTarget, source, speechPacks,
+        app: app.id, method, prefix: mhTarget, source, speechPacks, allowUnverified,
         onEvent: (ev) => {
           if (ev.event === "progress") {
             if (ev.stage) mhInstall.stage = ev.stage;
@@ -1215,16 +1237,40 @@
               <div class="banner err">{mhInstall.error}</div>
               <button class="primary" onclick={resetInstall}>Back to apps</button>
             </div>
+          {:else if mhPlanning}
+            <div class="signin-card">
+              <div class="signin-h">Install {mhPlanning.name}</div>
+              <div class="signin-d">Checking which versions Adobe offers…</div>
+              <button class="ghost" onclick={() => (mhPlanning = null)}>Back</button>
+            </div>
           {:else if mhConfirm}
             <div class="signin-card">
               <div class="signin-h">Install {mhConfirm.name}</div>
-              <label class="speech-opt">
-                <input type="checkbox" bind:checked={mhSpeech} />
-                <span>{SPEECH_LABEL}
-                  <span class="speech-help">{SPEECH_HELP}</span>
-                </span>
-              </label>
-              <button class="primary" onclick={() => startInstall(mhConfirm, { speechPacks: mhSpeech })}>Install</button>
+              {#if mhConfirm.choice}
+                {#if mhConfirm.choice.tested}
+                  <label class="speech-opt">
+                    <input type="radio" bind:group={mhVersion} value="tested" />
+                    <span>Version {mhConfirm.choice.tested.label}
+                      <span class="speech-help">Tested by Neutron. Recommended.</span>
+                    </span>
+                  </label>
+                {/if}
+                <label class="speech-opt">
+                  <input type="radio" bind:group={mhVersion} value="newest" />
+                  <span>{mhConfirm.choice.newest.label ? `Version ${mhConfirm.choice.newest.label}` : "Adobe's newest version"}
+                    <span class="speech-help">{UNTESTED_HELP}</span>
+                  </span>
+                </label>
+              {/if}
+              {#if SPEECH_APPS.includes(mhConfirm.id)}
+                <label class="speech-opt">
+                  <input type="checkbox" bind:checked={mhSpeech} />
+                  <span>{SPEECH_LABEL}
+                    <span class="speech-help">{SPEECH_HELP}</span>
+                  </span>
+                </label>
+              {/if}
+              <button class="primary" onclick={() => startInstall(mhConfirm, { speechPacks: mhSpeech, allowUnverified: mhVersion === "newest" })}>Install</button>
               <button class="ghost" onclick={() => (mhConfirm = null)}>Back</button>
             </div>
           {:else if mhMethod === "download"}
@@ -1812,7 +1858,7 @@
   .sel { user-select: text; -webkit-user-select: text; color: rgba(255,255,255,0.65); word-break: break-all; }
   .signin-d.warn { color: #f0b84a; }
   .pref-small { font-size: 12px; }
-  .speech-opt { display: flex; align-items: flex-start; gap: 8px; text-align: left; font-size: 12.5px;
+  .speech-opt { display: flex; align-items: flex-start; gap: 8px; text-align: left; font-size: 12.5px; align-self: stretch;
                 color: rgba(255,255,255,0.85); cursor: pointer; line-height: 1.45; }
   .speech-opt input { accent-color: #9a5cf5; margin-top: 3px; }
   .speech-help { display: block; font-size: 11.5px; color: rgba(255,255,255,0.45); }

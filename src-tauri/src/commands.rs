@@ -472,6 +472,7 @@ pub async fn install_app(
     allow_unverified: Option<bool>,
     speech_packs: Option<bool>,
     remove_previous: Option<bool>,
+    dry_run: Option<bool>,
     on_event: tauri::ipc::Channel<Value>,
 ) -> Result<Value, String> {
     let opts = crate::mudhut::InstallOpts {
@@ -479,6 +480,7 @@ pub async fn install_app(
         allow_unverified: allow_unverified.unwrap_or(false),
         speech_packs: speech_packs.unwrap_or(false),
         remove_previous: remove_previous.unwrap_or(false),
+        dry_run: dry_run.unwrap_or(false),
     };
     tauri::async_runtime::spawn_blocking(move || {
         crate::mudhut::install_stream(&app, &method, &prefix, source.as_deref(), &opts, |ev| {

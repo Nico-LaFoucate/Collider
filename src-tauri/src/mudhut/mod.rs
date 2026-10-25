@@ -289,10 +289,13 @@ pub fn install_stream(
 pub struct InstallOpts {
     /// `--version MAJOR`: a specific yearly version (e.g. the 2027 apps) instead of the newest.
     pub version: Option<String>,
-    /// `--allow-unverified` (with `--version`): the user confirmed a yearly version Neutron has
-    /// not verified. Without it Mud Hut installs the newest VERIFIED build of that version and
-    /// refuses (`code: "unverified"`) when there is none; with it, a verified build still wins.
+    /// `--allow-unverified`: the user chose Adobe's newest build (of `version`, if set) knowing
+    /// Neutron has not tested it (his call, 2026-10-24). Without it Mud Hut installs the newest
+    /// TESTED build, and refuses (`code: "unverified"`) a chosen yearly version with none.
     pub allow_unverified: bool,
+    /// `--dry-run`: only the plan (which build, tested or not, Adobe's newest); nothing is
+    /// downloaded or installed.
+    pub dry_run: bool,
     /// `--speech-packs`: also install Premiere Pro's speech-to-text languages (about 13.8 GB).
     /// Off unless the user asks, as in Creative Cloud (DECISIONS C70).
     pub speech_packs: bool,
@@ -330,6 +333,9 @@ fn install_stream_with(
     }
     if opts.remove_previous {
         args.push("--remove-previous".into());
+    }
+    if opts.dry_run {
+        args.push("--dry-run".into());
     }
     let s = stream_with(bin, &args, true, on_event)?;
     if let Some(e) = s.error {
@@ -597,6 +603,15 @@ pub(crate) mod tests {
         );
     }
 
+    #[test]
+    fn a_plan_is_a_dry_run_with_the_same_choices() {
+        let f = fake("echo '{\"event\":\"result\",\"ok\":true,\"dry_run\":true}'\n");
+        let o = InstallOpts { allow_unverified: true, dry_run: true, ..InstallOpts::default() };
+        install_stream_with(&f.bin, "premiere", "download", "/p", None, &o, &mut |_| {}).unwrap();
+        assert_eq!(argv(&f), ["--json", "install", "premiere", "--method", "download", "--prefix", "/p",
+                              "--allow-unverified", "--dry-run"]);
+    }
+
     /// The `check-updates` terminal result exactly as CONTRACT.md writes it (one prefix,
     /// Premiere with a verified in-place update, a newer unverified build and a new yearly
     /// version), on one line as Mud Hut prints it.
@@ -854,7 +869,7 @@ pub(crate) mod tests {
     #[test]
     fn install_argv_with_yearly_and_speech_options() {
         let f = fake_output("{\"event\":\"result\",\"ok\":true}\n", "", 0);
-        let o = InstallOpts { version: Some("27".into()), allow_unverified: true, speech_packs: true, remove_previous: true };
+        let o = InstallOpts { version: Some("27".into()), allow_unverified: true, speech_packs: true, remove_previous: true, dry_run: false };
         install_stream_with(&f.bin, "premiere", "download", "/p", None, &o, &mut |_| {}).unwrap();
         assert_eq!(argv(&f), ["--json", "install", "premiere", "--method", "download", "--prefix", "/p",
                               "--version", "27", "--allow-unverified", "--speech-packs", "--remove-previous"]);
@@ -897,7 +912,7 @@ pub(crate) mod tests {
         let prefix = std::env::temp_dir().join("collider-real-mudhut-dry-run-prefix");
         let prefix = prefix.to_string_lossy();
         // Audition 25 is not verified (DRAFT list): with the user's confirmation it resolves.
-        let o = InstallOpts { version: Some("25".into()), allow_unverified: true, speech_packs: false, remove_previous: true };
+        let o = InstallOpts { version: Some("25".into()), allow_unverified: true, speech_packs: false, remove_previous: true, dry_run: false };
         let mut seen = Vec::new();
         let r = install_stream_with(&bin, "audition", "download", &prefix, None, &o, &mut |v| seen.push(v))
             .expect("the real Mud Hut must accept Collider's argv");

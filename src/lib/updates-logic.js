@@ -518,8 +518,8 @@ export function dialogAction(req, choices = {}) {
     // `major`, else the leading number of the build it named.
     const major = nm?.major ?? majorOf(nm?.to);
     // The dialog tells the user when the version is not verified; confirming it is the "one
-    // confirmation" (DECISIONS C70), so it passes --allow-unverified. Mud Hut still installs a
-    // verified build of that version when one exists.
+    // confirmation" (DECISIONS C70), so it passes --allow-unverified, and Mud Hut installs the
+    // newest build of that version, the one the dialog named.
     return { op: "install", app: row.id, version: major === null || major === undefined ? null : String(major),
              label: `${row.name} ${nm?.label ?? nm?.year}`, allowUnverified: nm?.verified !== true,
              removePrevious: !!choices.removePrevious, speechPacks: !!choices.speechPacks };

@@ -205,15 +205,16 @@ export async function mudhutApps(source = null) {
  *  the terminal { event:"result", ... }. Resolves with the terminal result (with `exit` when Mud
  *  Hut exited non-zero after it; `ok:false` is then a failure in Mud Hut's words), or rejects with
  *  the error message. `version` picks a yearly version (`--version MAJOR`), `allowUnverified`
- *  follows the user's confirmation of one Neutron has not verified, `speechPacks` adds Premiere
- *  Pro's speech-to-text languages, `removePrevious` removes the previous yearly version (the
- *  result's `removed_previous` says what happened to each). */
+ *  is the user's informed choice of Adobe's newest build, tested by Neutron or not, `speechPacks`
+ *  adds Premiere Pro's speech-to-text languages, `removePrevious` removes the previous yearly
+ *  version (the result's `removed_previous` says what happened to each). `dryRun` only asks for the
+ *  plan: the build, `verified`, and Adobe's `newest` when that is another build. */
 export async function installApp({ app, method, prefix, source = null, version = null, allowUnverified = false,
-                                   speechPacks = false, removePrevious = false, onEvent }) {
+                                   speechPacks = false, removePrevious = false, dryRun = false, onEvent }) {
   const channel = new Channel();
   channel.onmessage = (ev) => onEvent?.(ev);
   return await invoke("install_app", { app, method, prefix, source, version, allowUnverified, speechPacks,
-                                       removePrevious, onEvent: channel });
+                                       removePrevious, dryRun, onEvent: channel });
 }
 
 // --- Adobe app updates (Mud Hut) -----------------------------------------------
