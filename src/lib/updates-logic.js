@@ -31,7 +31,7 @@ export function upToSize(bytes) {
 }
 
 /** A download's byte counts (Mud Hut's progress events carry bytes_done, bytes_total and, once
- *  measured, bytes_per_sec) -> "1.3 of 3.4 GB · 41 MB/s · about 2 min left"; null when the event
+ *  measured, bytes_per_sec) -> "1.3 of 3.4 GB · 41 MB/s · 2 min left"; null when the event
  *  has none (an older Mud Hut, or a stage that is not a download). */
 export function downloadDetail(ev) {
   const done = ev?.bytes_done, total = ev?.bytes_total, rate = ev?.bytes_per_sec;
@@ -44,9 +44,10 @@ export function downloadDetail(ev) {
     const left = (total - done) / rate;
     if (left > 0) {
       const min = Math.ceil(left / 60);
-      parts.push(left < 60 ? "less than a minute left"
-        : min < 60 ? `about ${min} min left`
-        : `about ${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ""} left`);
+      // Short enough for an app card (it showed "…less than a minut…" there).
+      parts.push(left < 60 ? "under 1 min left"
+        : min < 60 ? `${min} min left`
+        : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ""} left`);
     }
   }
   return parts.join(" · ");
@@ -104,7 +105,7 @@ export function nameIn(pstate, id) {
 /** Mud Hut's update stage tokens in words. An unknown token is shown as it is. */
 const STAGES = {
   starting: "Starting", preflight: "Checking", download: "Downloading", snapshot: "Backing up",
-  apply: "Installing", provision: "Setting up", verify: "Checking the result",
+  apply: "Installing", provision: "Setting up", verify: "Checking the result", waiting: "Waiting for apps to close",
   rollback: "Putting the backup back",
 };
 export const stageLabel = (s) => (s ? STAGES[s] ?? s : null);
@@ -114,14 +115,16 @@ export const stageLabel = (s) => (s ? STAGES[s] ?? s : null);
 export function activeUpdate(job, pstate) {
   if (job) {
     return { ours: true, kind: job.kind, apps: job.apps, app: job.app, stage: job.stage,
-             pct: job.pct, msg: job.msg, label: job.label ?? null, bytes: job.bytes ?? null };
+             pct: job.pct, msg: job.msg, label: job.label ?? null, bytes: job.bytes ?? null,
+             locked: typeof job.locked === "boolean" ? job.locked : null };
   }
   const u = pstate?.update_in_progress;
   if (u) {
     const apps = u.apps ?? [];
     return { ours: false, kind: "update", apps, app: apps[0] ?? null, stage: u.stage ?? null,
              pct: typeof u.pct === "number" ? u.pct : null, msg: u.msg ?? null,
-             startedAt: u.started_at ?? null, log: u.log ?? null, label: null };
+             startedAt: u.started_at ?? null, log: u.log ?? null, label: null,
+             locked: typeof u.prefix_held === "boolean" ? u.prefix_held : null };
   }
   return null;
 }
@@ -283,7 +286,9 @@ export function outcomePill(o) {
  *   pstate      Mud Hut's prefix object (apps_running, update_in_progress, last_update)
  *   job         the job this Collider runs in the prefix, if any
  *   outcome     how this Collider's last run for the app ended, if any
- *   appRunning  this card's app is running (the card's own, always fresh)
+ *   appRunning  this card's app is running (the card's own, always fresh). It no longer blocks Update:
+ *               Mud Hut 0.3.6+ downloads while the app runs and then waits for it to close (an older one
+ *               reports can_update:false with its own reason while an app runs).
  *   neutronBusy a Neutron update is running
  * Returns { pills, outcomePill, progress, button, launchLock, note, noteCls, log }.
  */
@@ -294,7 +299,10 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
   const act = activeUpdate(job, pstate);
 
   if (act) {
-    view.launchLock = waitSentence(act, pstate);
+    // Launch is locked only while Mud Hut changes the prefix. Mud Hut 0.3.6+ says when that is
+    // (`locked` false while it downloads: the apps stay usable, as with Creative Cloud); an older
+    // one says nothing (null) and holds the prefix for the whole job.
+    view.launchLock = act.locked === false ? null : waitSentence(act, pstate);
     if (listed(act.apps, row ?? { id, name: appName })) {
       const installing = act.kind === "install";
       view.pills.push({ text: installing ? "Installing…" : "Updating…", cls: "warn pulse" });
@@ -303,6 +311,8 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
         pct: typeof act.pct === "number" ? act.pct : null,
         text: act.msg || stageLabel(act.stage) || "",
         detail: downloadDetail(act.bytes),
+        // Mud Hut waits for apps to close: its sentence says which, so it must be read whole.
+        waiting: act.stage === "waiting",
       };
       view.button = { label: installing ? "Installing…" : "Updating…", disabled: true, reason: null, action: null };
       return view;
@@ -343,9 +353,8 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
   }
 
   if (view.button) {
-    const reason = act ? view.launchLock
+    const reason = act ? waitSentence(act, pstate)   // one Mud Hut job per prefix, downloading or not
       : neutronBusy ? "Wait for the Neutron update to finish."
-      : appRunning ? `Close ${appName} first.`
       : (view.button.action === "update" || view.button.action === "unverified") && u?.can_update === false
         ? (u.blocked_reason ?? "Mud Hut can't update it right now.")
       : null;
@@ -410,6 +419,12 @@ export function readyCount(prefixStates) {
 function closedLine(prefixName, all) {
   return `Keep every Adobe app in “${prefixName}” closed until ${all ? "all of them finish" : "it finishes"}.`;
 }
+// Mud Hut 0.3.6+ downloads with the prefix free and then waits for its apps to close.
+function workLine(prefixName, all) {
+  return all
+    ? `You can keep using the apps in “${prefixName}” while the updates download. They finish once every Adobe app there is closed.`
+    : `You can keep using the apps in “${prefixName}” while it downloads. It finishes once every Adobe app there is closed.`;
+}
 function snapshotLine(snapshot) {
   return snapshot
     ? "A backup copy is kept first and put back if the update fails."
@@ -441,7 +456,9 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
   const row = req.row;
   const name = row?.name ?? "";
   const verb = req.kind === "yearly" ? "Installing" : "Updating";
-  if (appsRunning?.length) {
+  // Only finishing a cut-off update needs the prefix at once (it puts the backup back first); every
+  // other run downloads with the apps open and then waits for them to close (Mud Hut 0.3.6+).
+  if (appsRunning?.length && req.kind === "finish") {
     m.blockedBy = `Close ${joinNames(appsRunning)} first. ${verb} needs every Adobe app in “${prefixName}” closed.`;
   }
 
@@ -451,7 +468,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     m.title = `Update ${name}?`;
     m.lines.push(`${name} ${installedLabel(row)} → ${targetLabel(u)}, downloaded from Adobe${size ? ` (${size})` : ""}.`);
     if (u?.adopt === true) m.lines.push(ADOPT_LINE);
-    m.lines.push(closedLine(prefixName, false));
+    m.lines.push(workLine(prefixName, false));
     m.lines.push(snapshotLine(snapshot));
     for (const r of req.related ?? []) {
       m.options.push({ key: `also:${r.id}`, label: `Also update ${r.name} (${installedLabel(r)} → ${targetLabel(r.update)})`,
@@ -466,7 +483,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     m.title = `Update ${rows.length} apps in “${prefixName}”?`;
     m.items = rows.map((r) => `${r.name} ${installedLabel(r)} → ${targetLabel(r.update)}`);
     m.lines.push(`They update one after another${total ? `, ${total} to download in total` : ""}.`);
-    m.lines.push(closedLine(prefixName, true));
+    m.lines.push(workLine(prefixName, true));
     m.lines.push(snapshotLine(snapshot));
     for (const e of req.excluded ?? []) {
       m.lines.push(e.unverified
@@ -487,7 +504,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     }
     m.lines.push(`${name} ${installedLabel(row)} → ${targetLabel(t)}, downloaded from Adobe${size ? ` (${size})` : ""}.`);
     if (row.update?.adopt === true) m.lines.push(ADOPT_LINE);
-    m.lines.push(closedLine(prefixName, false));
+    m.lines.push(workLine(prefixName, false));
     m.lines.push(snapshotLine(snapshot));
     m.confirm = "Update anyway";
     m.cancel = "Wait";
@@ -507,7 +524,7 @@ export function dialogModel(req, { prefixName, snapshot = true, appsRunning = []
     if (nm.verified !== true) {
       m.lines.push(`${name} ${year} is not yet tested by Neutron. There may be issues we are currently unaware of.`);
     }
-    m.lines.push(`Keep every Adobe app in “${prefixName}” closed until it finishes.`);
+    m.lines.push(workLine(prefixName, false));
     if (SPEECH_APPS.includes(row.id)) {
       m.options.push({ key: "speechPacks", label: SPEECH_LABEL, help: SPEECH_HELP, value: false });
     }

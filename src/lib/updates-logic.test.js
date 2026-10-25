@@ -80,7 +80,8 @@ test("card: a verified update shows the pill and an enabled Update button", () =
 
 test("card: disabled reasons, in order, with Mud Hut's blocked_reason verbatim", () => {
   const row = premiere();
-  assert.equal(cardView({ row, pstate: pstate([row]), appRunning: true }).button.reason, "Close Premiere Pro first.");
+  assert.equal(cardView({ row, pstate: pstate([row]), appRunning: true }).button.reason, null,
+               "an open app no longer stops its update from starting (Mud Hut 0.3.6 downloads, then waits)");
   assert.equal(cardView({ row, pstate: pstate([row]), neutronBusy: true }).button.reason,
                "Wait for the Neutron update to finish.");
   const blocked = { ...row, update: { ...row.update, can_update: false, blocked_reason: "Update Neutron first: this version needs a newer runtime." } };
@@ -98,13 +99,35 @@ test("card: an update of another app in the prefix locks Launch and Update", () 
   assert.equal(v.progress, null);
   const mine = cardView({ row: aftereffects(), pstate: p, job });
   assert.equal(mine.pills[0].text, "Updating…");
-  assert.deepEqual(mine.progress, { pct: 30, text: "Downloading", detail: null }, "the stage when Mud Hut gave no sentence");
+  assert.deepEqual(mine.progress, { pct: 30, text: "Downloading", detail: null, waiting: false }, "the stage when Mud Hut gave no sentence");
+  const wait = cardView({ row: aftereffects(), pstate: p, job: { ...job, stage: "waiting", pct: 100,
+    msg: "After Effects 26.5 is downloaded. Close Premiere Pro to finish.", locked: false } });
+  assert.equal(wait.progress.waiting, true, "shown whole, never cut off");
+  assert.equal(wait.progress.text, "After Effects 26.5 is downloaded. Close Premiere Pro to finish.");
   const bytes = { bytes_done: 0.4e9, bytes_total: 3.4e9, bytes_per_sec: 41e6 };
   assert.equal(cardView({ row: aftereffects(), pstate: p, job: { ...job, bytes } }).progress.detail,
-               "0.4 of 3.4 GB · 41 MB/s · about 2 min left");
+               "0.4 of 3.4 GB · 41 MB/s · 2 min left");
   const said = cardView({ row: aftereffects(), pstate: p, job: { ...job, msg: "Downloading After Effects" } });
   assert.equal(said.progress.text, "Downloading After Effects", "Mud Hut's sentence, not the stage repeated");
   assert.equal(mine.button.label, "Updating…");
+});
+
+test("card: while Mud Hut 0.3.6+ downloads, Launch stays open; once it takes the prefix, it locks", () => {
+  const p = pstate([premiere(), aftereffects()]);
+  const job = { kind: "update", apps: ["aftereffects"], app: "aftereffects", stage: "download", pct: 30, msg: "", locked: false };
+  const other = cardView({ row: premiere(), pstate: p, job });
+  assert.equal(other.launchLock, null, "another app in the prefix can be used during the download");
+  assert.equal(other.button.disabled, true, "but not updated: one Mud Hut job per prefix");
+  assert.equal(cardView({ row: aftereffects(), pstate: p, job }).launchLock, null, "nor is the app being updated locked yet");
+  const applying = { ...job, stage: "apply", locked: true };
+  assert.equal(cardView({ row: premiere(), pstate: p, job: applying }).launchLock, "Wait for the After Effects update to finish.");
+  const older = { ...job, locked: null };   // a Mud Hut before 0.3.6 never says: it holds the prefix throughout
+  assert.equal(cardView({ row: premiere(), pstate: p, job: older }).launchLock, "Wait for the After Effects update to finish.");
+  // The same from check-updates, for an update this Collider did not start.
+  const dl = pstate([premiere()], { update_in_progress: { pid: 1, apps: ["premiere"], stage: "download", prefix_held: false } });
+  assert.equal(cardView({ row: premiere(), pstate: dl }).launchLock, null);
+  const ap = pstate([premiere()], { update_in_progress: { pid: 1, apps: ["premiere"], stage: "apply", prefix_held: true } });
+  assert.equal(cardView({ row: premiere(), pstate: ap }).launchLock, "Wait for the Premiere Pro update to finish.");
 });
 
 test("card: an update left running by an earlier Collider (update_in_progress) locks the prefix", () => {
@@ -182,7 +205,7 @@ test("dialog: one verified update", () => {
                         { prefixName: "Adobe 2026", snapshot: true });
   assert.equal(m.title, "Update Premiere Pro?");
   assert.equal(m.lines[0], "Premiere Pro 26.3.0.12 → 26.5.2, downloaded from Adobe (up to 187 MB).");
-  assert.equal(m.lines[1], "Keep every Adobe app in “Adobe 2026” closed until it finishes.");
+  assert.equal(m.lines[1], "You can keep using the apps in “Adobe 2026” while it downloads. It finishes once every Adobe app there is closed.");
   assert.equal(m.lines[2], "A backup copy is kept first and put back if the update fails.");
   assert.equal(m.options[0].label, "Also update After Effects (26.3.0.5 → 26.5)");
   assert.equal(m.blockedBy, null);
@@ -190,7 +213,11 @@ test("dialog: one verified update", () => {
   assert.match(off.lines[2], /Backups are turned off/);
   const busy = dialogModel({ kind: "update", row: premiere() },
                            { prefixName: "Adobe 2026", appsRunning: ["Premiere Pro", "After Effects"] });
-  assert.equal(busy.blockedBy, "Close Premiere Pro and After Effects first. Updating needs every Adobe app in “Adobe 2026” closed.");
+  assert.equal(busy.blockedBy, null, "open apps no longer stop an update from starting (Mud Hut 0.3.6 waits for them)");
+  const finish = dialogModel({ kind: "finish", row: premiere() },
+                             { prefixName: "Adobe 2026", appsRunning: ["Premiere Pro", "After Effects"] });
+  assert.equal(finish.blockedBy, "Close Premiere Pro and After Effects first. Updating needs every Adobe app in “Adobe 2026” closed.");
+  assert.ok(finish.lines.includes("Keep every Adobe app in “Adobe 2026” closed until it finishes."));
 });
 
 test("dialog: a Windows copy Mud Hut must register first says so", () => {
@@ -207,7 +234,7 @@ test("dialog: update all lists what it covers and what it leaves out", () => {
   assert.equal(m.title, "Update 2 apps in “Adobe 2026”?");
   assert.deepEqual(m.items, ["Premiere Pro 26.3.0.12 → 26.5.2", "After Effects 26.3.0.5 → 26.5"]);
   assert.equal(m.lines[0], "They update one after another, up to 2.6 GB to download in total.");
-  assert.equal(m.lines[1], "Keep every Adobe app in “Adobe 2026” closed until all of them finish.");
+  assert.equal(m.lines[1], "You can keep using the apps in “Adobe 2026” while the updates download. They finish once every Adobe app there is closed.");
   assert.equal(m.lines[3], "Not included: Photoshop 27.1, which is not yet tested by Neutron. You can update it on its own.");
   assert.equal(m.confirm, "Update all");
 });
@@ -388,13 +415,13 @@ test("outcomeFor: a new year's install shows on the app until its own row is lis
 test("download detail: sizes, speed and time left from Mud Hut's progress bytes", () => {
   // Mud Hut 0.3.6, live (2026-10-24): {"bytes_done":1264439438,"bytes_per_sec":40676185,"bytes_total":3417400760,...}
   assert.equal(downloadDetail({ bytes_done: 1264439438, bytes_total: 3417400760, bytes_per_sec: 40676185 }),
-               "1.3 of 3.4 GB · 41 MB/s · less than a minute left");
+               "1.3 of 3.4 GB · 41 MB/s · under 1 min left");
   assert.equal(downloadDetail({ bytes_done: 0.5e9, bytes_total: 9.8e9, bytes_per_sec: 2.5e6 }),
-               "0.5 of 9.8 GB · 2.5 MB/s · about 1 h 2 min left");
+               "0.5 of 9.8 GB · 2.5 MB/s · 1 h 2 min left");
   assert.equal(downloadDetail({ bytes_done: 2e9, bytes_total: 9.8e9, bytes_per_sec: 1.3e6 }),
-               "2.0 of 9.8 GB · 1.3 MB/s · about 1 h 40 min left");
+               "2.0 of 9.8 GB · 1.3 MB/s · 1 h 40 min left");
   assert.equal(downloadDetail({ bytes_done: 12e6, bytes_total: 411e6, bytes_per_sec: 20e6 }),
-               "12 of 411 MB · 20 MB/s · less than a minute left");
+               "12 of 411 MB · 20 MB/s · under 1 min left");
   assert.equal(downloadDetail({ bytes_done: 1e9, bytes_total: 3.4e9 }), "1.0 of 3.4 GB", "speed not measured yet");
   assert.equal(downloadDetail({ stage: "apply", pct: 70 }), null, "older Mud Hut, or not a download");
   assert.equal(downloadDetail(null), null);

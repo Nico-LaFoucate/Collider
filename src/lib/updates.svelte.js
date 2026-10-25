@@ -191,6 +191,8 @@ function track(prefix, ev) {
     j.bytes = typeof ev.bytes_total === "number" ? ev : null;   // only while a download runs
   } else if (ev.event === "note" && ev.msg) {
     j.msg = ev.msg;
+  } else if (ev.event === "prefix_lock") {
+    j.locked = ev.held === true;   // Mud Hut 0.3.6+: false while it downloads, true once it changes the prefix
   } else if (ev.event === "app_result" && ev.app) {
     record(prefix, ev.app, outcomeFromAppResult(ev));
   }
@@ -239,7 +241,7 @@ export async function runUpdate({ prefix, apps, to = null, allowUnverified = fal
     clearOutcomes(prefix, id, major);
     shown[ukey(prefix, id)] = labels[id] ?? null;
   }
-  upd.jobs[prefix] = { kind: "update", apps: [...apps], app: apps[0], stage: "starting", pct: 0, msg: "", label: null };
+  upd.jobs[prefix] = { kind: "update", apps: [...apps], app: apps[0], stage: "starting", pct: 0, msg: "", label: null, locked: null };
   let r = null;
   try {
     r = await updateAdobeApps({ prefix, apps, to, allowUnverified, noSnapshot, onEvent: (ev) => track(prefix, ev) });
@@ -289,7 +291,7 @@ export async function runYearlyInstall({ prefix, app, name = app, version, label
   if (upd.jobs[prefix]) return null;
   const major = majorOf(String(version));   // the new year's own row shows how its install went
   clearOutcomes(prefix, app, major);
-  upd.jobs[prefix] = { kind: "install", apps: [app], app, stage: "starting", pct: 0, msg: "", label };
+  upd.jobs[prefix] = { kind: "install", apps: [app], app, stage: "starting", pct: 0, msg: "", label, locked: null };
   let r = null;
   try {
     r = await installApp({ app, method: "download", prefix, version, allowUnverified, removePrevious, speechPacks,

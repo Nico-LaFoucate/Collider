@@ -1219,7 +1219,8 @@
               <div class="signin-h">Installing {mhInstall.name}…</div>
               <div class="install-stage">{mhInstall.stage || "starting"}</div>
               <div class="progress"><div class="bar" style="width: {mhInstall.pct}%"></div></div>
-              <div class="install-msg">{mhInstall.msg}</div>
+              <!-- Waiting for apps to close: Mud Hut's sentence names them, so it is shown whole. -->
+              <div class="install-msg" class:install-wait={mhInstall.stage === "waiting"}>{mhInstall.msg}</div>
               {#if mhInstall.detail}<div class="install-msg">{mhInstall.detail}</div>{/if}
               <div class="signin-d">
                 {#if mhMethod === "download"}Downloading + installing genuine {mhInstall.name} from Adobe.
@@ -1753,6 +1754,7 @@
   .install-stage { font-size: 12px; text-transform: capitalize; color: #8fd0ff; font-weight: 600; }
   .install-msg { font-size: 11.5px; color: rgba(255,255,255,0.5); min-height: 1.2em;
     max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .install-msg.install-wait { white-space: normal; color: #f2c374; line-height: 1.45; }
   .progress { width: 100%; height: 8px; border-radius: 6px; overflow: hidden;
     background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); }
   .progress .bar { height: 100%; background: linear-gradient(90deg, #2f7fd6, #31a8ff);

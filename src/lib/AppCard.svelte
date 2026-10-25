@@ -174,8 +174,8 @@
         <div class="upd-fill" class:indet={uv.progress.pct === null}
              style="width: {uv.progress.pct ?? 100}%"></div>
       </div>
-      {#if uv.progress.text}<div class="upd-msg">{uv.progress.text}</div>{/if}
-      {#if uv.progress.detail}<div class="upd-msg">{uv.progress.detail}</div>{/if}
+      {#if uv.progress.text}<div class="upd-msg" class:upd-wait={uv.progress.waiting}>{uv.progress.text}</div>{/if}
+      {#if uv.progress.detail}<div class="upd-msg upd-detail">{uv.progress.detail}</div>{/if}
     </div>
   {/if}
   {#if uv.note}<div class="card-note {uv.noteCls}">{uv.note}</div>{/if}
@@ -263,6 +263,8 @@
   .upd-fill.indet { opacity: 0.5; animation: pulse 1.6s infinite; }
   .upd-msg { font-size: 10.5px; color: rgba(255,255,255,0.5); margin-top: 4px;
              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .upd-detail { white-space: normal; }   /* sizes and time left: wrap rather than lose the end */
+  .upd-wait { white-space: normal; color: #f2c374; line-height: 1.45; }   /* "… Close After Effects to finish." */
   .card-note { font-size: 10.5px; color: rgba(255,255,255,0.55); margin-bottom: 10px; line-height: 1.45; }
   .card-note.warn { color: #f2c374; }
   .card-note.bad { color: #ff9b9b; }
