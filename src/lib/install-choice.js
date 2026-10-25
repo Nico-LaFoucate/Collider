@@ -3,7 +3,7 @@
 // untested". Mud Hut installs the newest build Neutron has tested; its plan (`install --dry-run`)
 // also names Adobe's newest build when that is another one, which the user may choose instead.
 
-export const UNTESTED_HELP = "Not yet tested by Neutron. It may not open, or parts of it may not work.";
+export const UNTESTED_HELP = "Not yet tested by Neutron. There may be issues we are currently unaware of.";
 
 /** Mud Hut's plan -> null when there is nothing to choose (the planned build is Adobe's newest, or
  *  Neutron has never tested the app, as with the experimental ones), else
