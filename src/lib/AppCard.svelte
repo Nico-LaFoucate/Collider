@@ -175,6 +175,7 @@
              style="width: {uv.progress.pct ?? 100}%"></div>
       </div>
       {#if uv.progress.text}<div class="upd-msg">{uv.progress.text}</div>{/if}
+      {#if uv.progress.detail}<div class="upd-msg">{uv.progress.detail}</div>{/if}
     </div>
   {/if}
   {#if uv.note}<div class="card-note {uv.noteCls}">{uv.note}</div>{/if}

@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ukey, upToSize, joinNames, majorOf, updateAllPlan, cardView, prefixSummary, readyCount,
+  ukey, upToSize, downloadDetail, joinNames, majorOf, updateAllPlan, cardView, prefixSummary, readyCount,
   dialogModel, dialogAction, outcomeFromAppResult, outcomeFromTerminal, outcomeFromLastUpdate,
   outcomeFromInstall, outcomeNote, SPEECH_LABEL, SPEECH_HELP, pickRow, rowKey, ykey, outcomeFor, sameYear,
 } from "./updates-logic.js";
@@ -98,7 +98,10 @@ test("card: an update of another app in the prefix locks Launch and Update", () 
   assert.equal(v.progress, null);
   const mine = cardView({ row: aftereffects(), pstate: p, job });
   assert.equal(mine.pills[0].text, "Updating…");
-  assert.deepEqual(mine.progress, { pct: 30, text: "Downloading" }, "the stage when Mud Hut gave no sentence");
+  assert.deepEqual(mine.progress, { pct: 30, text: "Downloading", detail: null }, "the stage when Mud Hut gave no sentence");
+  const bytes = { bytes_done: 0.4e9, bytes_total: 3.4e9, bytes_per_sec: 41e6 };
+  assert.equal(cardView({ row: aftereffects(), pstate: p, job: { ...job, bytes } }).progress.detail,
+               "0.4 of 3.4 GB · 41 MB/s · about 2 min left");
   const said = cardView({ row: aftereffects(), pstate: p, job: { ...job, msg: "Downloading After Effects" } });
   assert.equal(said.progress.text, "Downloading After Effects", "Mud Hut's sentence, not the stage repeated");
   assert.equal(mine.button.label, "Updating…");
@@ -379,4 +382,19 @@ test("outcomeFor: a new year's install shows on the app until its own row is lis
   const both = [au("25.3.0.40", 2025), au("26.0.0.30", 2026)];
   assert.equal(outcomeFor(outcomes, "/p", "audition", both[0], both), undefined, "the 2026 row is listed: only there");
   assert.equal(outcomeFor(outcomes, "/p", "audition", both[1], both).state, "installed");
+});
+
+test("download detail: sizes, speed and time left from Mud Hut's progress bytes", () => {
+  // Mud Hut 0.3.6, live (2026-10-24): {"bytes_done":1264439438,"bytes_per_sec":40676185,"bytes_total":3417400760,...}
+  assert.equal(downloadDetail({ bytes_done: 1264439438, bytes_total: 3417400760, bytes_per_sec: 40676185 }),
+               "1.3 of 3.4 GB · 41 MB/s · less than a minute left");
+  assert.equal(downloadDetail({ bytes_done: 0.5e9, bytes_total: 9.8e9, bytes_per_sec: 2.5e6 }),
+               "0.5 of 9.8 GB · 2.5 MB/s · about 1 h 2 min left");
+  assert.equal(downloadDetail({ bytes_done: 2e9, bytes_total: 9.8e9, bytes_per_sec: 1.3e6 }),
+               "2.0 of 9.8 GB · 1.3 MB/s · about 1 h 40 min left");
+  assert.equal(downloadDetail({ bytes_done: 12e6, bytes_total: 411e6, bytes_per_sec: 20e6 }),
+               "12 of 411 MB · 20 MB/s · less than a minute left");
+  assert.equal(downloadDetail({ bytes_done: 1e9, bytes_total: 3.4e9 }), "1.0 of 3.4 GB", "speed not measured yet");
+  assert.equal(downloadDetail({ stage: "apply", pct: 70 }), null, "older Mud Hut, or not a download");
+  assert.equal(downloadDetail(null), null);
 });

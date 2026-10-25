@@ -188,6 +188,7 @@ function track(prefix, ev) {
     if (ev.stage) j.stage = ev.stage;
     if (typeof ev.pct === "number") j.pct = ev.pct;
     if (ev.msg) j.msg = ev.msg;
+    j.bytes = typeof ev.bytes_total === "number" ? ev : null;   // only while a download runs
   } else if (ev.event === "note" && ev.msg) {
     j.msg = ev.msg;
   } else if (ev.event === "app_result" && ev.app) {

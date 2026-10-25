@@ -11,7 +11,7 @@
   import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
            runUpdate, runYearlyInstall, targetLabels, anyJob, outcomeFor } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
-           cardView, joinNames, installedLabel, targetLabel, upToSize, prefixError,
+           cardView, joinNames, installedLabel, targetLabel, upToSize, downloadDetail, prefixError,
            SPEECH_APPS, SPEECH_LABEL, SPEECH_HELP, rowKey } from "$lib/updates-logic.js";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -260,6 +260,7 @@
             if (ev.stage) mhInstall.stage = ev.stage;
             if (typeof ev.pct === "number") mhInstall.pct = ev.pct;
             if (ev.msg) mhInstall.msg = ev.msg;
+            mhInstall.detail = downloadDetail(ev);
           } else if (ev.event === "note" && ev.msg) {
             mhInstall.msg = ev.msg;
           }
@@ -1217,6 +1218,7 @@
               <div class="install-stage">{mhInstall.stage || "starting"}</div>
               <div class="progress"><div class="bar" style="width: {mhInstall.pct}%"></div></div>
               <div class="install-msg">{mhInstall.msg}</div>
+              {#if mhInstall.detail}<div class="install-msg">{mhInstall.detail}</div>{/if}
               <div class="signin-d">
                 {#if mhMethod === "download"}Downloading + installing genuine {mhInstall.name} from Adobe.
                 {:else if mhMethod === "windows"}Copying {mhInstall.name} from your Windows install and provisioning the prefix.

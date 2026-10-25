@@ -29,6 +29,28 @@ export function upToSize(bytes) {
   if (bytes > 1e6) return `up to ${Math.ceil(bytes / 1e6)} MB`;
   return "up to 1 MB";
 }
+
+/** A download's byte counts (Mud Hut's progress events carry bytes_done, bytes_total and, once
+ *  measured, bytes_per_sec) -> "1.3 of 3.4 GB · 41 MB/s · about 2 min left"; null when the event
+ *  has none (an older Mud Hut, or a stage that is not a download). */
+export function downloadDetail(ev) {
+  const done = ev?.bytes_done, total = ev?.bytes_total, rate = ev?.bytes_per_sec;
+  if (typeof done !== "number" || typeof total !== "number" || !(total > 0)) return null;
+  const gb = total >= 1e9;
+  const amount = (b) => (gb ? (b / 1e9).toFixed(1) : String(Math.round(b / 1e6)));
+  const parts = [`${amount(Math.min(done, total))} of ${amount(total)} ${gb ? "GB" : "MB"}`];
+  if (typeof rate === "number" && rate > 0) {
+    parts.push(`${rate >= 1e7 ? Math.round(rate / 1e6) : (rate / 1e6).toFixed(1)} MB/s`);
+    const left = (total - done) / rate;
+    if (left > 0) {
+      const min = Math.ceil(left / 60);
+      parts.push(left < 60 ? "less than a minute left"
+        : min < 60 ? `about ${min} min left`
+        : `about ${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ""} left`);
+    }
+  }
+  return parts.join(" · ");
+}
 const trim = (n) => String(n).replace(/\.0$/, "");
 
 /** "A", "A and B", "A, B and C". */
@@ -92,7 +114,7 @@ export const stageLabel = (s) => (s ? STAGES[s] ?? s : null);
 export function activeUpdate(job, pstate) {
   if (job) {
     return { ours: true, kind: job.kind, apps: job.apps, app: job.app, stage: job.stage,
-             pct: job.pct, msg: job.msg, label: job.label ?? null };
+             pct: job.pct, msg: job.msg, label: job.label ?? null, bytes: job.bytes ?? null };
   }
   const u = pstate?.update_in_progress;
   if (u) {
@@ -280,6 +302,7 @@ export function cardView({ row, id, name, pstate, job, outcome, appRunning = fal
       view.progress = {
         pct: typeof act.pct === "number" ? act.pct : null,
         text: act.msg || stageLabel(act.stage) || "",
+        detail: downloadDetail(act.bytes),
       };
       view.button = { label: installing ? "Installing…" : "Updating…", disabled: true, reason: null, action: null };
       return view;
