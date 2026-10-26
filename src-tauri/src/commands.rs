@@ -198,6 +198,29 @@ pub async fn report(prefix: Option<String>) -> Result<String, String> {
     off_main(move || crate::neutron::report(prefix.as_deref()).map_err(estr)).await
 }
 
+/// Plugins tab: the engine's inventory of a prefix's third-party plugins, verbatim.
+#[tauri::command]
+pub async fn plugins_list(prefix: String) -> Result<Value, String> {
+    off_main(move || crate::neutron::plugins_list(&prefix).map_err(estr)).await
+}
+
+/// Plugins tab: where each kind of plugin goes, for the "Open folder" buttons.
+#[tauri::command]
+pub async fn plugins_folders(prefix: String) -> Result<Value, String> {
+    off_main(move || crate::neutron::plugins_folders(&prefix).map_err(estr)).await
+}
+
+/// Plugins tab: install what the user picked or dropped; per-file verdicts come back verbatim.
+#[tauri::command]
+pub async fn plugins_install(prefix: String, files: Vec<String>, app: Option<String>) -> Result<Value, String> {
+    off_main(move || crate::neutron::plugins_install(&prefix, &files, app.as_deref()).map_err(estr)).await
+}
+
+#[tauri::command]
+pub async fn open_prefix_folder(path: String) -> Result<(), String> {
+    off_main(move || crate::neutron::open_prefix_folder(&path).map_err(estr)).await
+}
+
 #[tauri::command]
 pub async fn apply_display_fix(prefix: String) -> Result<Value, String> {
     off_main(move || crate::neutron::apply_display_fix(&prefix).map_err(estr)).await

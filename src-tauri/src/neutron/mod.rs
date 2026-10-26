@@ -241,6 +241,56 @@ pub fn report(prefix: Option<&str>) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow!("`neutron report` returned no report"))
 }
 
+/// `neutron plugins` arrived in Neutron 1.0.0-beta.29; an older CLI rejects the subcommand in argparse.
+fn needs_plugins_cli(e: anyhow::Error) -> anyhow::Error {
+    if e.to_string().contains("invalid choice: 'plugins'") {
+        anyhow!("This needs Neutron 1.0.0-beta.29 or newer. Update Neutron in Preferences, then try again.")
+    } else {
+        e
+    }
+}
+
+/// Plugins tab: what third-party plugins a prefix holds (`neutron plugins list`), verbatim:
+/// `{extensions: [{id, name, version, path}], shared: [names], vst3: [names],
+///   programs: [{name, publisher, version}], apps: {app_id: {plugins, scripts}}}`.
+pub fn plugins_list(prefix: &str) -> anyhow::Result<Value> {
+    run_json(&["plugins", "list", "--prefix", prefix]).map_err(needs_plugins_cli)
+}
+
+/// The Linux folders each kind of plugin goes into (`neutron plugins folder`): `{folders: {key: path}}`.
+pub fn plugins_folders(prefix: &str) -> anyhow::Result<Value> {
+    run_json(&["plugins", "folder", "--prefix", prefix]).map_err(needs_plugins_cli)
+}
+
+/// Install plugin files, folders, extension packages or vendor installers (`neutron plugins install`).
+/// The engine decides where each goes and answers per file (`installed: [{file, type, ok, to|reason,
+/// replaced, note}]`); exit 1 with that list means some were not installed, which is a verdict to show,
+/// not a failure -- run_json_status. A vendor installer runs in the prefix and this waits for it.
+pub fn plugins_install(prefix: &str, files: &[String], app: Option<&str>) -> anyhow::Result<Value> {
+    let mut args = vec!["plugins", "install", "--prefix", prefix];
+    if let Some(a) = app {
+        args.push("--app");
+        args.push(a);
+    }
+    args.extend(files.iter().map(String::as_str));
+    run_json_status(&args).map_err(needs_plugins_cli)
+}
+
+/// Open a folder of a Neutron prefix in the file manager, creating it first (a plugin folder exists only
+/// once something was installed into it). Only folders inside a prefix's drive_c are opened.
+pub fn open_prefix_folder(path: &str) -> anyhow::Result<()> {
+    let p = std::path::Path::new(path);
+    if !p.is_absolute() || !path.contains("/drive_c/") || path.split('/').any(|c| c == "..") {
+        return Err(anyhow!("not a folder inside a Neutron prefix: {path}"));
+    }
+    std::fs::create_dir_all(p).with_context(|| format!("could not create {path}"))?;
+    clean_command_for("xdg-open")
+        .arg(p)
+        .spawn()
+        .context("could not start xdg-open to show the folder")?;
+    Ok(())
+}
+
 /// Font verdict for a prefix (`neutron fonts check`). Read-only in the engine — it never starts
 /// wine — so it is safe to run for every registered prefix on the Prefixes tab. Returns the raw
 /// object `{status: good|warn|bad, summary, checks, repair, apps_running, note?}`; render

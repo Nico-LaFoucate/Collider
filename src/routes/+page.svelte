@@ -9,6 +9,7 @@
   import { versionChoice, untestedOnlyChoice, UNTESTED_HELP } from "$lib/install-choice.js";
   import UpdateDialog from "$lib/UpdateDialog.svelte";
   import ReportDialog from "$lib/ReportDialog.svelte";
+  import PluginsPanel from "$lib/PluginsPanel.svelte";
   import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
            runUpdate, runYearlyInstall, targetLabels, anyJob, outcomeFor } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
@@ -820,6 +821,8 @@
       <div class="nav-section">Library</div>
       <div class="nav-item" class:active={view === "apps"} role="button" tabindex="0"
            onclick={() => (view = "apps")}>All apps</div>
+      <div class="nav-item" class:active={view === "plugins"} role="button" tabindex="0"
+           onclick={() => (view = "plugins")}>Plugins</div>
       <div class="nav-section">Tools</div>
       <div class="nav-item" class:active={view === "mudhut"} role="button" tabindex="0"
            onclick={openMudHut}>Mud Hut
@@ -942,6 +945,26 @@
       {/if}
     </section>
     {/if}
+    </div>
+  {:else if view === "plugins"}
+    <header>
+      <div>
+        <div class="title">Plugins</div>
+        <div class="subtitle">
+          {#if prefixValid}
+            {prefixes.find((p) => p.selected)?.name ?? "Neutron prefix"} · {prefix}
+          {:else}
+            No prefix selected
+          {/if}
+        </div>
+      </div>
+    </header>
+    <div class="scroll">
+      {#if prefixValid}
+        {#key prefix}<PluginsPanel {prefix} />{/key}
+      {:else}
+        <div class="banner">Select a prefix on the Prefixes tab first.</div>
+      {/if}
     </div>
   {:else if view === "prefixes"}
     <header>

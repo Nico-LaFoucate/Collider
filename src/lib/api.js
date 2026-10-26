@@ -65,6 +65,27 @@ export async function doctor(prefix = null) {
   return await invoke("doctor", { prefix });
 }
 
+/** Plugins tab: `neutron plugins list` for a prefix -- {extensions, shared, vst3, programs, apps}. */
+export async function pluginsList(prefix) {
+  return await invoke("plugins_list", { prefix });
+}
+
+/** Plugins tab: the folders each kind of plugin goes into -- {folders: {key: path}}. */
+export async function pluginsFolders(prefix) {
+  return await invoke("plugins_folders", { prefix });
+}
+
+/** Install plugin files/folders/.zxp/vendor installers; resolves to {ok, installed: [per-file], note}.
+ *  `app` names the app a script (.jsx/.jsxbin) is for. Waits for a vendor installer to finish. */
+export async function pluginsInstall(prefix, files, app = null) {
+  return await invoke("plugins_install", { prefix, files, app });
+}
+
+/** Show a folder inside a prefix in the file manager (created first if it does not exist yet). */
+export async function openPrefixFolder(path) {
+  return await invoke("open_prefix_folder", { path });
+}
+
 /** Everything a bug report needs, as text ready to paste (`neutron report`), with the user's
  *  personal details already replaced by the CLI. Pass the selected prefix, or omit for all. */
 export async function report(prefix = null) {
