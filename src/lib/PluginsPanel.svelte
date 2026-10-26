@@ -12,10 +12,11 @@
   const APP_NAMES = { aftereffects: "After Effects", photoshop: "Photoshop", illustrator: "Illustrator" };
   // What the file picker offers (the engine also takes a folder of .aex/.prm/.8bf/.aip files).
   const EXTENSIONS = ["aex", "prm", "8bf", "8li", "8ba", "8bi", "8be", "8bx", "8by", "8bs", "aip", "vst3",
-                      "jsx", "jsxbin", "zxp", "exe", "msi"];
+                      "jsx", "jsxbin", "zxp", "ccx", "exe", "msi"];
   const FOLDER_LABELS = {
     shared: "After Effects, Premiere Pro and Media Encoder plugins",
     extensions: "Extension panels",
+    uxp: "UXP plugins",
     vst3: "VST3 audio plugins",
     "aftereffects-plugins": "After Effects only plugins",
     "aftereffects-scripts": "After Effects scripts (ScriptUI panels)",
@@ -133,7 +134,7 @@
   <section class="add">
     <div class="add-title">Add plugins</div>
     <div class="add-body">
-      Drop plugin files, VST3 plugins, extension packages (.zxp), scripts or a vendor's installer here, or choose them.
+      Drop plugin files, VST3 plugins, UXP plugins (.ccx), extension packages (.zxp), scripts or a vendor's installer here, or choose them.
       Neutron puts each where its Windows installer would. Close the Adobe apps before running an installer,
       and restart an app to load what you added.
     </div>
@@ -195,6 +196,14 @@
     <section class="group">
       <div class="g-title">Extension panels</div>
       {#each inv.extensions as e (e.id)}
+        <div class="item"><span class="i-name">{e.name}</span><span class="i-meta">{e.version ?? ""}</span></div>
+      {:else}
+        <div class="i-none">None installed.</div>
+      {/each}
+    </section>
+    <section class="group">
+      <div class="g-title">UXP plugins</div>
+      {#each inv.uxp ?? [] as e (e.path)}
         <div class="item"><span class="i-name">{e.name}</span><span class="i-meta">{e.version ?? ""}</span></div>
       {:else}
         <div class="i-none">None installed.</div>
