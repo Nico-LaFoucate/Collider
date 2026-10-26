@@ -8,6 +8,7 @@
   import AppCard from "$lib/AppCard.svelte";
   import { versionChoice, untestedOnlyChoice, UNTESTED_HELP } from "$lib/install-choice.js";
   import UpdateDialog from "$lib/UpdateDialog.svelte";
+  import ReportDialog from "$lib/ReportDialog.svelte";
   import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
            runUpdate, runYearlyInstall, targetLabels, anyJob, outcomeFor } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
@@ -485,6 +486,7 @@
   // Every entry point (card, Apps header, Mud Hut's Updates view, the Prefixes line) builds a
   // request and opens the ONE dialog; confirming runs Mud Hut through the shared store.
   let udReq = $state(null);
+  let reportOpen = $state(false);   // "Copy details" (ReportDialog): `neutron report` for the selected prefix
   const prefixName = (p) => prefixes.find((x) => x.path === p)?.name ?? p;
   const neutronBusy = $derived(nrun.phase === "running");
 
@@ -843,6 +845,8 @@
       {:else}
         <div class="sys-empty">Not checked — hit Refresh</div>
       {/if}
+      <button class="sys-btn" onclick={() => (reportOpen = true)}
+              title="Everything a bug report needs, with your personal details replaced">Copy details</button>
     </div>
 
   </aside>
@@ -1603,6 +1607,10 @@
                   onconfirm={onUpdateConfirm} oncancel={() => (udReq = null)} />
   {/if}
 
+  {#if reportOpen}
+    <ReportDialog prefix={prefixValid ? prefix : null} onclose={() => (reportOpen = false)} />
+  {/if}
+
   {#if closeGuard}
     <div class="modal-back">
       <div class="modal" role="alertdialog" aria-labelledby="close-guard-h">
@@ -1689,6 +1697,10 @@
   .sys-row:hover { background: rgba(255,255,255,0.04); }
   .sys-name { color: rgba(255,255,255,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sys-empty { padding: 4px 10px; font-size: 11px; color: rgba(255,255,255,0.3); }
+  .sys-btn { margin: 8px 10px 0; padding: 6px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.14);
+             background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.75); font-size: 11.5px; text-align: left;
+             cursor: pointer; flex-shrink: 0; }
+  .sys-btn:hover { background: rgba(255,255,255,0.08); color: #f0f0f2; }
   .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: rgba(255,255,255,0.3); }
   .dot.ok { background: #3ce08c; }
   .dot.bad { background: #e24b4a; }

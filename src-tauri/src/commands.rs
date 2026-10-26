@@ -192,6 +192,12 @@ pub async fn doctor(prefix: Option<String>) -> Result<Value, String> {
     off_main(move || crate::neutron::doctor(prefix.as_deref()).map_err(estr)).await
 }
 
+/// "Copy details" in the sidebar: `neutron report` for the selected prefix, as text.
+#[tauri::command]
+pub async fn report(prefix: Option<String>) -> Result<String, String> {
+    off_main(move || crate::neutron::report(prefix.as_deref()).map_err(estr)).await
+}
+
 #[tauri::command]
 pub async fn apply_display_fix(prefix: String) -> Result<Value, String> {
     off_main(move || crate::neutron::apply_display_fix(&prefix).map_err(estr)).await

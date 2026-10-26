@@ -65,6 +65,12 @@ export async function doctor(prefix = null) {
   return await invoke("doctor", { prefix });
 }
 
+/** Everything a bug report needs, as text ready to paste (`neutron report`), with the user's
+ *  personal details already replaced by the CLI. Pass the selected prefix, or omit for all. */
+export async function report(prefix = null) {
+  return await invoke("report", { prefix });
+}
+
 /** Font verdict for a prefix (`neutron fonts check`): {status: good|warn|bad, summary, checks,
  *  repair, apps_running}. Read-only and fast; the engine never starts wine for it. */
 export async function fontsCheck(prefix) {

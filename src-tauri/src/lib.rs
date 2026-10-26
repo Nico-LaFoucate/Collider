@@ -24,6 +24,7 @@ pub fn run() {
             commands::select_prefix,
             commands::provision_prefix,
             commands::doctor,
+            commands::report,
             commands::apply_display_fix,
             commands::fonts_check,
             commands::fonts_repair,

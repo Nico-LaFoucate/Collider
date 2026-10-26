@@ -218,6 +218,29 @@ pub fn doctor(prefix: Option<&str>) -> anyhow::Result<Value> {
     }
 }
 
+/// Everything a bug report needs, as text ready to paste (`neutron report`): the bug form's fields,
+/// each prefix's apps and runtime, the display scale and the end of the newest app log. The CLI has
+/// already replaced the user name, home folder, computer name, email addresses and sign-in tokens;
+/// Collider only shows and copies the text.
+pub fn report(prefix: Option<&str>) -> anyhow::Result<String> {
+    let mut args = vec!["report"];
+    if let Some(p) = prefix {
+        args.push("--prefix");
+        args.push(p);
+    }
+    let v = run_json(&args).map_err(|e| {
+        if e.to_string().contains("invalid choice: 'report'") {
+            anyhow!("This needs Neutron 1.0.0-beta.27 or newer. Update Neutron in Preferences, then try again.")
+        } else {
+            e
+        }
+    })?;
+    v.get("report")
+        .and_then(|r| r.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("`neutron report` returned no report"))
+}
+
 /// Font verdict for a prefix (`neutron fonts check`). Read-only in the engine — it never starts
 /// wine — so it is safe to run for every registered prefix on the Prefixes tab. Returns the raw
 /// object `{status: good|warn|bad, summary, checks, repair, apps_running, note?}`; render
