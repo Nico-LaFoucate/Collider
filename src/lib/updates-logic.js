@@ -121,9 +121,11 @@ export function activeUpdate(job, pstate) {
   const u = pstate?.update_in_progress;
   if (u) {
     const apps = u.apps ?? [];
-    return { ours: false, kind: "update", apps, app: apps[0] ?? null, stage: u.stage ?? null,
-             pct: typeof u.pct === "number" ? u.pct : null, msg: u.msg ?? null,
-             startedAt: u.started_at ?? null, log: u.log ?? null, label: null,
+    // Mud Hut 0.3.8+ records installs too (`command` "install", `label` "Animate": the app is not in
+    // the prefix's list yet); older ones only record updates.
+    return { ours: false, kind: u.command === "install" ? "install" : "update", apps, app: apps[0] ?? null,
+             stage: u.stage ?? null, pct: typeof u.pct === "number" ? u.pct : null, msg: u.msg ?? null,
+             startedAt: u.started_at ?? null, log: u.log ?? null, label: u.label ?? null,
              locked: typeof u.prefix_held === "boolean" ? u.prefix_held : null };
   }
   return null;

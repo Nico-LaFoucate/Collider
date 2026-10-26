@@ -139,6 +139,17 @@ test("card: an update left running by an earlier Collider (update_in_progress) l
   assert.equal(v.progress.pct, null);
 });
 
+test("card: an install Mud Hut reports (not started by this Collider) is called an install", () => {
+  const p = pstate([premiere()], { update_in_progress: { pid: 7, command: "install", apps: ["animate"], label: "Animate",
+                                                          stage: "install", prefix_held: true } });
+  const v = cardView({ row: premiere(), pstate: p });
+  assert.equal(v.launchLock, "Wait for the Animate install to finish.");
+  assert.equal(v.button.reason, "Wait for the Animate install to finish.");   // Premiere's own update waits too
+  // An older Mud Hut never says: an update, as before.
+  const old = pstate([premiere()], { update_in_progress: { pid: 7, apps: ["premiere"], stage: "apply" } });
+  assert.equal(cardView({ row: premiere(), pstate: old }).launchLock, "Wait for the Premiere Pro update to finish.");
+});
+
 test("card: an unverified build and a yearly version", () => {
   const v = cardView({ row: photoshopUnverified(), pstate: pstate([photoshopUnverified()]) });
   assert.equal(v.pills[0].text, "27.1 available · not yet tested");
