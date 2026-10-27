@@ -10,6 +10,7 @@
   import UpdateDialog from "$lib/UpdateDialog.svelte";
   import ReportDialog from "$lib/ReportDialog.svelte";
   import PluginsPanel from "$lib/PluginsPanel.svelte";
+  import SupportPanel from "$lib/SupportPanel.svelte";
   import { upd, startUpdateChecks, stopUpdateChecks, setUpdateHooks, check, checkNow,
            runUpdate, runYearlyInstall, targetLabels, anyJob, outcomeFor } from "$lib/updates.svelte.js";
   import { updateAllPlan, hasVerifiedUpdate, prefixSummary, readyCount, activeUpdate, waitSentence,
@@ -127,7 +128,7 @@
   let refreshing = $state(false); // header Refresh button state
 
   // --- view switching + Preferences (settings) ---
-  let view = $state("apps");                    // "apps" | "prefixes" | "mudhut" | "preferences"
+  let view = $state("apps");                    // "apps" | "plugins" | "prefixes" | "mudhut" | "preferences" | "support"
 
   // --- Mud Hut installer ---
   // Which install method the user picked in the Mud Hut tab. null = show the menu. No method
@@ -832,6 +833,8 @@
            onclick={openPrefixes}>Prefixes</div>
       <div class="nav-item" class:active={view === "preferences"} role="button" tabindex="0"
            onclick={openPreferences}>Preferences</div>
+      <div class="nav-item" class:active={view === "support"} role="button" tabindex="0"
+           onclick={() => (view = "support")}>Support</div>
     </nav>
 
     <div class="sys">
@@ -1403,6 +1406,14 @@
         </section>
       {/if}
     </div>
+  {:else if view === "support"}
+    <header>
+      <div>
+        <div class="title">Support</div>
+        <div class="subtitle">Help keep Neutron going</div>
+      </div>
+    </header>
+    <div class="scroll"><SupportPanel /></div>
   {:else if view === "preferences"}
     <header>
       <div>
