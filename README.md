@@ -72,7 +72,7 @@ Collider launches the apps Neutron supports: Premiere Pro, After Effects, Photos
 Collider has the same requirements as Neutron:
 
 - 64-bit Linux with glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, current Arch / CachyOS / Manjaro, openSUSE Tumbleweed) and a **Wayland** session
-- An **NVIDIA GPU**. AMD and Intel GPUs are not validated yet.
+- A GPU. NVIDIA is the tested path. On AMD, Photoshop 2026 and Premiere Pro 2026 use the GPU and Illustrator 2026 runs; a user reports Premiere Pro and Photoshop working on Intel Iris Xe
 - Up-to-date GPU drivers
 - **Python 3** and **cabextract**
 - **32-bit (multilib) system libraries**: Adobe's installer and licensing helpers are 32-bit.
