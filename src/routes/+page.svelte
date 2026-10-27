@@ -1754,7 +1754,8 @@
   .banner { margin: 14px 22px 0; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; }
   .banner.err { background: rgba(226,75,74,0.14); color: #ff9b9b; border: 1px solid rgba(226,75,74,0.3); }
   .banner.ok-note { margin: 0; background: rgba(46,182,115,0.12); color: #9fe3bd; border: 1px solid rgba(46,182,115,0.3);
-                    line-height: 1.5; word-break: break-all; }
+                    line-height: 1.5; }
+  .banner.ok-note code { overflow-wrap: anywhere; }   /* the path may break anywhere; the sentence only between words */
   .prereq { width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 12px 14px;
             border-radius: 10px; background: rgba(239,159,39,0.08); border: 1px solid rgba(239,159,39,0.28); }
   .prereq-h { font-size: 13px; font-weight: 600; color: #f2c374; }
