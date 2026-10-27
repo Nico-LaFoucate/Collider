@@ -918,8 +918,9 @@
           <div class="prereq">
             <div class="prereq-h">Neutron needs {nrun.prereqs.missing.join(" and ")} from your system</div>
             <div class="prereq-d">
-              Collider can install {nrun.prereqs.missing.length > 1 ? "them" : "it"} now. Your system will ask
-              for your password, then setup carries on. It runs:
+              Collider can install {nrun.prereqs.missing.length > 1 ? "them" : "it"} now{nrun.prereqs.ntsync
+                ? ", and turn on ntsync, which makes the apps much faster" : ""}. Your system will ask for your
+              password once, then setup carries on. It runs:
             </div>
             <code class="prereq-cmd">{nrun.prereqs.command}</code>
           </div>
