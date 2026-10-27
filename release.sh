@@ -102,10 +102,15 @@ $too_new"
 
 mkdir -p "$DIST"
 NAME="Collider_${VER}_amd64.AppImage"
+# The same file under a name that never changes, so the website's download button can point at
+# releases/latest/download/Collider-x86_64.AppImage. `neutron setup` takes the first .AppImage it finds and
+# checks it against SHA256SUMS, which lists both, so either name works for every CLI version.
+STABLE="Collider-x86_64.AppImage"
 cp "$IMG" "$DIST/$NAME"
-( cd "$DIST" && sha256sum "$NAME" > SHA256SUMS )
+cp "$IMG" "$DIST/$STABLE"
+( cd "$DIST" && sha256sum "$NAME" "$STABLE" > SHA256SUMS )
 echo
-echo "Built $NAME, needs glibc $GLIBC_FLOOR at most."
+echo "Built $NAME (and $STABLE), needs glibc $GLIBC_FLOOR at most."
 echo "Publish:"
 echo "  git tag v$VER && git push origin v$VER"
-echo "  gh release create v$VER \"dist/$NAME\" dist/SHA256SUMS --title \"Collider $VER\" --notes \"...\""
+echo "  gh release create v$VER \"dist/$NAME\" \"dist/$STABLE\" dist/SHA256SUMS --title \"Collider $VER\" --notes \"...\""

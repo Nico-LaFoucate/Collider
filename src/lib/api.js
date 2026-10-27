@@ -208,10 +208,15 @@ export async function versions() {
 
 /** `neutron setup` (update=false) or `neutron update` (update=true), streaming progress events
  *  to `onEvent` like provisioning. Resolves with the result; rejects with what failed. */
-export async function neutronSetup(update, onEvent) {
+export async function neutronSetup(update, onEvent, installPrereqs = false) {
   const channel = new Channel();
   channel.onmessage = (ev) => onEvent?.(ev);
-  return await invoke("neutron_setup", { update, onEvent: channel });
+  return await invoke("neutron_setup", { update, installPrereqs, onEvent: channel });
+}
+
+/** The AppImage this Collider runs from, or null when it isn't one. */
+export async function appimagePath() {
+  return await invoke("appimage_path");
 }
 
 /** `neutron uninstall`. Prefixes are deleted only when deletePrefixes is true. */

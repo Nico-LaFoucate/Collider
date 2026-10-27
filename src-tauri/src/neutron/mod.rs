@@ -323,11 +323,17 @@ pub fn provision_stream(prefix: &str, on_event: impl FnMut(Value)) -> anyhow::Re
 }
 
 /// `neutron setup` / `neutron update`, streaming progress: the same NDJSON contract as provision.
-/// Setup may show the desktop's password dialog (pkexec) once, to turn on ntsync. When the CLI
-/// is not installed yet (a first run from the Collider AppImage alone), it is fetched first.
-pub fn setup_stream(update: bool, on_event: impl FnMut(Value)) -> anyhow::Result<Value> {
+/// Setup may show the desktop's password dialog (pkexec) once, to turn on ntsync. With
+/// `install_prereqs` (after the user saw the command a first run reported), setup first installs
+/// the missing system packages through the same dialog. When the CLI is not installed yet (a first
+/// run from the Collider AppImage alone), it is fetched first.
+pub fn setup_stream(update: bool, install_prereqs: bool, on_event: impl FnMut(Value)) -> anyhow::Result<Value> {
     let bin = if update { "neutron".to_string() } else { bootstrap_cli()? };
-    run_stream_with(&bin, &[if update { "update" } else { "setup" }], on_event)
+    let mut args = vec![if update { "update" } else { "setup" }];
+    if install_prereqs {
+        args.push("--install-prereqs");
+    }
+    run_stream_with(&bin, &args, on_event)
 }
 
 /// The CLI to run setup with: `neutron` on PATH, else the CLI from the neutron repo's latest

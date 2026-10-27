@@ -1,7 +1,7 @@
 <script>
   import { prefixInfo, doctor, listApps,
            getSettings, setSettings, settingsLocation, detectScale, getThemePresets, getIconSets,
-           importIconSet, versions, neutronSetup, neutronUninstall,
+           importIconSet, versions, neutronSetup, neutronUninstall, appimagePath,
            mudhutApps, installApp, workingPrefix,
            listPrefixes, discoverPrefixes, addPrefix, removePrefix, renamePrefix,
            selectPrefix, provisionPrefix, fontsCheck, fontsRepair } from "$lib/api.js";
@@ -304,7 +304,10 @@
   let neutronReady = $derived(!!(vers?.cli && vers?.neutron_wine));
   // phase: idle | running | done | error; kind: setup | update; result: the engine's result
   // ({ ok, steps: [{ step, ok, detail? }] }) once it has finished.
-  let nrun = $state({ phase: "idle", kind: null, stage: "", msg: "", error: null, result: null });
+  let nrun = $state({ phase: "idle", kind: null, stage: "", msg: "", error: null, result: null, prereqs: null });
+  // After a first setup from a downloaded AppImage: setup put Collider in its own folder and the app menu,
+  // so the downloaded copy can go.
+  let downloadedCopy = $state(null);
   // `neutron update` succeeds even when it skips a prefix with an app running in it; its
   // `prefixes` step then names the skipped prefixes in `detail`.
   const updatePrefixesNote = $derived(
@@ -318,8 +321,10 @@
   }
 
   // Set up (first run) or Update: the engine does the work and streams its progress.
-  async function runNeutron(kind) {
-    nrun = { phase: "running", kind, stage: "starting", msg: "", error: null, result: null };
+  // installPrereqs: the user clicked "Install and continue" under the packages a first run reported missing
+  // (the CLI's `prereqs` plan, shown with its command); setup installs them through the password dialog.
+  async function runNeutron(kind, installPrereqs = false) {
+    nrun = { phase: "running", kind, stage: "starting", msg: "", error: null, result: null, prereqs: null };
     try {
       const result = await neutronSetup(kind === "update", (ev) => {
         if (ev.event === "progress") {
@@ -327,9 +332,16 @@
           if (ev.msg) nrun.msg = ev.msg;
         } else if (ev.event === "note" && ev.msg) {
           nrun.msg = ev.msg;
+        } else if (ev.ok === false && ev.prereqs?.missing?.length) {
+          nrun.prereqs = ev.prereqs;
         }
-      });
+      }, installPrereqs);
       nrun = { ...nrun, phase: "done", result };
+      if (kind === "setup") {
+        const installed = result?.steps?.find((st) => st.step === "collider")?.path;
+        const me = await appimagePath().catch(() => null);
+        if (installed && me && me !== installed) downloadedCopy = me;
+      }
       await loadVersions();
       await loadPrefixes();
       if (prefixValid) await refresh();
@@ -896,18 +908,36 @@
           Visual C++ runtimes and GDI+ from Microsoft, Microsoft's core fonts and d3dcompiler_47
           from public copies of Microsoft's original files (each checked against a pinned
           checksum), and Adobe's Creative Cloud package from Adobe. You may be asked for your
-          password once, to turn on ntsync, which makes the apps much faster.
+          password: to install two system packages Neutron needs, if they're missing, and to turn on
+          ntsync, which makes the apps much faster.
         </div>
         {#if nrun.phase === "running"}
           <div class="install-stage">{nrun.stage}</div>
           <div class="install-msg">{nrun.msg}</div>
+        {:else if nrun.phase === "error" && nrun.prereqs?.can_install}
+          <div class="prereq">
+            <div class="prereq-h">Neutron needs {nrun.prereqs.missing.join(" and ")} from your system</div>
+            <div class="prereq-d">
+              Collider can install {nrun.prereqs.missing.length > 1 ? "them" : "it"} now. Your system will ask
+              for your password, then setup carries on. It runs:
+            </div>
+            <code class="prereq-cmd">{nrun.prereqs.command}</code>
+          </div>
+        {:else if nrun.phase === "error" && nrun.prereqs?.how}
+          <div class="banner err">
+            Neutron needs {nrun.prereqs.missing.join(" and ")} from your system. To finish: {nrun.prereqs.how}.
+          </div>
         {:else if nrun.phase === "error"}
           <div class="banner err">{nrun.error}</div>
         {/if}
         <div class="setup-actions">
-          <button class="primary" onclick={() => runNeutron("setup")} disabled={nrun.phase === "running"}>
-            {nrun.phase === "running" ? "Setting up…" : nrun.phase === "error" ? "Try again" : "Set up"}
-          </button>
+          {#if nrun.phase === "error" && nrun.prereqs?.can_install}
+            <button class="primary" onclick={() => runNeutron("setup", true)}>Install and continue</button>
+          {:else}
+            <button class="primary" onclick={() => runNeutron("setup")} disabled={nrun.phase === "running"}>
+              {nrun.phase === "running" ? "Setting up…" : nrun.phase === "error" ? "Try again" : "Set up"}
+            </button>
+          {/if}
         </div>
       </section>
     {:else if !prefixValid}
@@ -916,6 +946,12 @@
            Collider doesn't know where to look. -->
       <section class="setup">
         <div class="setup-title">No Neutron prefix yet</div>
+        {#if downloadedCopy}
+          <div class="banner ok-note">
+            Neutron is set up, and Collider is now in your app menu. You can delete the file you downloaded:
+            <code>{downloadedCopy}</code>
+          </div>
+        {/if}
         <div class="setup-body">
           Collider needs a wine prefix with Adobe apps in it. Point it at one you already have,
           or let Mud Hut build one at <code>{defaultNewPrefix}</code>.
@@ -1717,6 +1753,14 @@
   .confirm { margin-top: 10px; padding: 12px 14px; border-radius: 8px; background: rgba(226,75,74,0.08); border: 1px solid rgba(226,75,74,0.25); font-size: 12.5px; display: flex; flex-direction: column; gap: 8px; }
   .banner { margin: 14px 22px 0; padding: 10px 14px; border-radius: 8px; font-size: 12.5px; }
   .banner.err { background: rgba(226,75,74,0.14); color: #ff9b9b; border: 1px solid rgba(226,75,74,0.3); }
+  .banner.ok-note { margin: 0; background: rgba(46,182,115,0.12); color: #9fe3bd; border: 1px solid rgba(46,182,115,0.3);
+                    line-height: 1.5; word-break: break-all; }
+  .prereq { width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 12px 14px;
+            border-radius: 10px; background: rgba(239,159,39,0.08); border: 1px solid rgba(239,159,39,0.28); }
+  .prereq-h { font-size: 13px; font-weight: 600; color: #f2c374; }
+  .prereq-d { font-size: 12px; line-height: 1.5; color: rgba(255,255,255,0.65); }
+  .prereq-cmd { display: block; padding: 7px 10px; border-radius: 7px; background: rgba(0,0,0,0.35);
+                font-size: 11.5px; color: #e8e8ec; word-break: break-all; user-select: text; }
 
   .grid { padding: 22px; display: grid; grid-template-columns: repeat(auto-fill, 250px); gap: 14px; justify-content: start; }
   .empty-apps { padding: 22px; color: rgba(255,255,255,0.4); font-size: 12.5px; }

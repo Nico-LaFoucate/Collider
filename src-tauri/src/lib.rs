@@ -49,6 +49,7 @@ pub fn run() {
             commands::import_icon_set,
             // Neutron itself
             commands::neutron_setup,
+            commands::appimage_path,
             commands::neutron_uninstall,
             commands::versions,
             // Mud Hut installer — app catalog + streaming install

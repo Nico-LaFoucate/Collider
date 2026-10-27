@@ -362,17 +362,26 @@ pub async fn detect_scale() -> Result<Value, String> {
 
 /// `neutron setup` (or `neutron update`), streaming progress over `on_event`. Minutes: it
 /// downloads neutron-wine, Microsoft's components, Mud Hut and Adobe's ACCCx. May show the
-/// desktop's password dialog once, to turn on ntsync.
+/// desktop's password dialog: once to turn on ntsync, and with `install_prereqs` once more to
+/// install the system packages setup reported missing (the user saw the command first).
 #[tauri::command]
-pub async fn neutron_setup(update: bool, on_event: tauri::ipc::Channel<Value>) -> Result<Value, String> {
+pub async fn neutron_setup(update: bool, install_prereqs: Option<bool>, on_event: tauri::ipc::Channel<Value>)
+    -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::neutron::setup_stream(update, |ev| {
+        crate::neutron::setup_stream(update, install_prereqs.unwrap_or(false), |ev| {
             let _ = on_event.send(ev);
         })
         .map_err(estr)
     })
     .await
     .map_err(estr)?
+}
+
+/// The AppImage this Collider runs from ($APPIMAGE), so the UI can tell the user they may delete
+/// a downloaded copy once setup has put Collider in its own folder and the app menu.
+#[tauri::command]
+pub fn appimage_path() -> Option<String> {
+    std::env::var("APPIMAGE").ok().filter(|p| !p.is_empty())
 }
 
 /// `neutron uninstall`; the confirmation (and the separate prefixes question) is the UI's.
