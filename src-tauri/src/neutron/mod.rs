@@ -336,6 +336,36 @@ pub fn setup_stream(update: bool, install_prereqs: bool, on_event: impl FnMut(Va
     run_stream_with(&bin, &args, on_event)
 }
 
+/// Download `url` to `out` with Python 3, retrying a failed attempt twice. Not curl: Ubuntu's
+/// desktop install has no curl (26.04's package manifests, 2026-10-27), so a fresh Ubuntu stopped
+/// at "curl is needed"; the CLI is a Python program, so Python 3 is there whenever Neutron can run.
+fn fetch(url: &str, out: &std::path::Path) -> anyhow::Result<()> {
+    const GET: &str = r#"import sys, time, urllib.request
+for attempt in range(3):
+    try:
+        req = urllib.request.Request(sys.argv[1], headers={"User-Agent": "neutron-collider"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(sys.argv[2], "wb") as f:
+            while True:
+                b = r.read(1 << 16)
+                if not b:
+                    break
+                f.write(b)
+        sys.exit(0)
+    except Exception as e:
+        err = e
+        if attempt < 2:
+            time.sleep(2)
+sys.exit(str(err))
+"#;
+    let o = Command::new("python3").args(["-c", GET, url]).arg(out).output()
+        .context("Python 3 is needed to run Neutron: install it with your distribution's package manager")?;
+    if !o.status.success() {
+        let why = String::from_utf8_lossy(&o.stderr).trim().lines().last().unwrap_or("").to_string();
+        return Err(anyhow!("could not download {url}: {why}"));
+    }
+    Ok(())
+}
+
 /// The CLI to run setup with: `neutron` on PATH, else the CLI from the neutron repo's latest
 /// GitHub release, downloaded to $XDG_DATA_HOME/neutron/bin/neutron and checked against that
 /// release's SHA256SUMS. `neutron setup` then links it onto PATH.
@@ -349,15 +379,9 @@ fn bootstrap_cli() -> anyhow::Result<String> {
     std::fs::create_dir_all(&dir)?;
     let base = "https://github.com/Nico-LaFoucate/neutron/releases/latest/download";
     let part = dir.join("neutron.part");
-    let get = |url: &str, out: &std::path::Path| -> anyhow::Result<()> {
-        let st = Command::new("curl").args(["-fsSL", "--retry", "3", "-o"]).arg(out).arg(url)
-            .status().context("curl is needed to download the Neutron CLI")?;
-        if !st.success() { return Err(anyhow!("could not download {url}")); }
-        Ok(())
-    };
-    get(&format!("{base}/neutron"), &part)?;
+    fetch(&format!("{base}/neutron"), &part)?;
     let sums = dir.join("SHA256SUMS.part");
-    get(&format!("{base}/SHA256SUMS"), &sums)?;
+    fetch(&format!("{base}/SHA256SUMS"), &sums)?;
     let want = std::fs::read_to_string(&sums)?.lines()
         .filter_map(|l| l.split_once(char::is_whitespace))
         .find(|(_, n)| n.trim().trim_start_matches('*') == "neutron")
@@ -525,6 +549,20 @@ fn pid_from(v: &Value) -> anyhow::Result<u32> {
 mod tests {
     use super::*;
     use crate::mudhut::tests::write_executable;
+
+    #[test]
+    fn fetch_downloads_without_curl_and_names_a_failure() {
+        let dir = std::env::temp_dir().join(format!("collider-fetch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("src");
+        std::fs::write(&src, b"neutron cli").unwrap();
+        let out = dir.join("out");
+        fetch(&format!("file://{}", src.display()), &out).unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"neutron cli");
+        let err = fetch(&format!("file://{}", dir.join("missing").display()), &dir.join("out2")).unwrap_err();
+        assert!(err.to_string().starts_with("could not download file://"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A fake `neutron` whose stdout carries a line in Windows code page 850, as Wine prints it on
     /// a French system (Neutron#11). The stream must skip it and still reach the `result`.
