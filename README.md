@@ -55,7 +55,6 @@ Collider is the user-facing frontend. **Neutron** is the compatibility engine un
 ## Planned
 
 - Lightroom (cloud) support
-- AMD and Intel GPU validation
 - Per-app GPU and color controls
 - Distro packages (AUR)
 
@@ -72,13 +71,13 @@ Collider launches the apps Neutron supports: Premiere Pro, After Effects, Photos
 Collider has the same requirements as Neutron:
 
 - 64-bit Linux with glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, current Arch / CachyOS / Manjaro, openSUSE Tumbleweed) and a **Wayland** session
-- A GPU. NVIDIA is the tested path. On AMD, Photoshop 2026 and Premiere Pro 2026 use the GPU and Illustrator 2026 runs; a user reports Premiere Pro and Photoshop working on Intel Iris Xe
+- An NVIDIA, AMD or Intel GPU. On AMD, Photoshop 2026 and Premiere Pro 2026 use the GPU and Illustrator 2026 runs; on Intel, Premiere Pro runs very well and Photoshop works on Iris Xe graphics
 - Up-to-date GPU drivers
 - **Python 3** and **cabextract**
 - **32-bit (multilib) system libraries**: Adobe's installer and licensing helpers are 32-bit.
 - A valid Adobe subscription or existing installation
 
-Neutron is tested on three machines, all CachyOS with KDE Plasma (Wayland) and NVIDIA GPUs.
+Neutron is developed on CachyOS with KDE Plasma (Wayland). Users also run it on Fedora, Ubuntu, Bazzite, Nobara and Arch, under GNOME and Hyprland, on NVIDIA, AMD and Intel GPUs.
 
 -----
 
