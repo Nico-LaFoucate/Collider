@@ -172,9 +172,9 @@
   </div>
 
   {#if error}<div class="card-err">{error}</div>{/if}
-  <!-- Neutron runs on X11 sessions (Linux Mint's default) but is made for Wayland: say so once. -->
+  <!-- Neutron runs on X11 sessions (Linux Mint's default); X11 support is experimental (his call, 2026-10-28). -->
   {#if running && step.detail?.display === "x11"}
-    <div class="card-note warn">X11 session: unsupported, and Neutron's Wayland fixes are off.</div>
+    <div class="card-note warn">X11 session: X11 support is experimental, and Neutron's Wayland fixes are off.</div>
   {/if}
 
   {#if uv.progress}
