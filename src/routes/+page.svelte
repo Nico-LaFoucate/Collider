@@ -923,6 +923,9 @@
               password once, then setup carries on. It runs:
             </div>
             <code class="prereq-cmd">{nrun.prereqs.command}</code>
+            {#if nrun.prereqs.failed}
+              <div class="prereq-fail">The last try didn't finish: {nrun.prereqs.failed}.</div>
+            {/if}
           </div>
         {:else if nrun.phase === "error" && nrun.prereqs?.how}
           <div class="banner err">
@@ -1760,6 +1763,7 @@
   .prereq { width: 100%; display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 12px 14px;
             border-radius: 10px; background: rgba(239,159,39,0.08); border: 1px solid rgba(239,159,39,0.28); }
   .prereq-h { font-size: 13px; font-weight: 600; color: #f2c374; }
+  .prereq-fail { font-size: 12px; line-height: 1.5; color: #ff9b9b; overflow-wrap: anywhere; }
   .prereq-d { font-size: 12px; line-height: 1.5; color: rgba(255,255,255,0.65); }
   .prereq-cmd { display: block; padding: 7px 10px; border-radius: 7px; background: rgba(0,0,0,0.35);
                 font-size: 11.5px; color: #e8e8ec; word-break: break-all; user-select: text; }
