@@ -162,7 +162,7 @@
         {#if step.detail.display === "wayland"}
           <span class="pill ok">Wayland</span>
         {:else if step.detail.display === "x11"}
-          <span class="pill ok">X11</span>
+          <span class="pill warn">X11</span>
         {/if}
       {/if}
       {#if step.detail && step.detail.neutron_wine === false}
@@ -172,6 +172,10 @@
   </div>
 
   {#if error}<div class="card-err">{error}</div>{/if}
+  <!-- Neutron runs on X11 sessions (Linux Mint's default) but is made for Wayland: say so once. -->
+  {#if running && step.detail?.display === "x11"}
+    <div class="card-note warn">X11 session: unsupported, and Neutron's Wayland fixes are off.</div>
+  {/if}
 
   {#if uv.progress}
     <div class="upd">
