@@ -357,13 +357,22 @@ for attempt in range(3):
             time.sleep(2)
 sys.exit(str(err))
 "#;
-    let o = Command::new("python3").args(["-c", GET, url]).arg(out).output()
+    let o = fetch_command(GET, url, out).output()
         .context("Python 3 is needed to run Neutron: install it with your distribution's package manager")?;
     if !o.status.success() {
         let why = String::from_utf8_lossy(&o.stderr).trim().lines().last().unwrap_or("").to_string();
         return Err(anyhow!("could not download {url}: {why}"));
     }
     Ok(())
+}
+
+/// The system's python3 with the AppImage's environment removed: inside Collider's AppImage,
+/// PYTHONHOME points into the image and the system python3 died at startup ("<no Python frame>",
+/// Ubuntu 26.04 VM, 2026-10-27).
+fn fetch_command(script: &str, url: &str, out: &std::path::Path) -> Command {
+    let mut cmd = clean_command_for("python3");
+    cmd.args(["-c", script, url]).arg(out);
+    cmd
 }
 
 /// The CLI to run setup with: `neutron` on PATH, else the CLI from the neutron repo's latest
@@ -388,7 +397,7 @@ fn bootstrap_cli() -> anyhow::Result<String> {
         .map(|(h, _)| h.to_lowercase())
         .context("the release lists no checksum for the CLI")?;
     let _ = std::fs::remove_file(&sums);
-    let got = Command::new("sha256sum").arg(&part).output()?;
+    let got = clean_command_for("sha256sum").arg(&part).output()?;
     let got = String::from_utf8_lossy(&got.stdout).split_whitespace().next().unwrap_or("").to_string();
     if got != want {
         let _ = std::fs::remove_file(&part);
@@ -562,6 +571,15 @@ mod tests {
         let err = fetch(&format!("file://{}", dir.join("missing").display()), &dir.join("out2")).unwrap_err();
         assert!(err.to_string().starts_with("could not download file://"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fetch_runs_python_without_the_appimage_environment() {
+        let cmd = fetch_command("pass", "file:///x", std::path::Path::new("/tmp/y"));
+        let removed: Vec<_> = cmd.get_envs().filter(|(_, v)| v.is_none()).map(|(k, _)| k.to_owned()).collect();
+        for var in ["PYTHONHOME", "PYTHONPATH", "LD_LIBRARY_PATH"] {
+            assert!(removed.iter().any(|k| k == var), "{var} must not reach the system python3");
+        }
     }
 
     /// A fake `neutron` whose stdout carries a line in Windows code page 850, as Wine prints it on
