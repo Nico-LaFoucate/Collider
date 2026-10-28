@@ -924,7 +924,7 @@
             </div>
             <code class="prereq-cmd">{nrun.prereqs.command}</code>
             {#if nrun.prereqs.failed}
-              <div class="prereq-fail">The last try didn't finish: {nrun.prereqs.failed.replace(/\.$/, "")}.</div>
+              <div class="prereq-fail">The last try didn't finish: {nrun.prereqs.failed}{/[.?!]$/.test(nrun.prereqs.failed) ? "" : "."}</div>
             {/if}
           </div>
         {:else if nrun.phase === "error" && nrun.prereqs?.how}
