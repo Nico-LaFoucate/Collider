@@ -146,8 +146,10 @@
       <span class="pill {info.valid ? 'ok' : 'bad'}">{info.valid ? "Prefix valid" : "Invalid prefix"}</span>
       <!-- The display-fix state comes from Premiere's own preferences file, so it means nothing
            on any other card. Not applied yet is normal before Premiere's first launch: the fix
-           is applied before every launch, so this is not a warning. -->
-      {#if app.id === "premiere"}
+           is applied before every launch, so this is not a warning. Premiere 2026 has no fix to
+           apply (it runs on Adobe's own DirectX display): the CLI sends display_fix_needed false
+           and there is no pill. -->
+      {#if app.id === "premiere" && info.display_fix_needed !== false}
         <span class="pill {info.display_fix_applied ? 'ok' : ''}"
               title="Applied automatically before Premiere launches">{info.display_fix_applied ? "Display fix" : "Display fix pending"}</span>
       {/if}

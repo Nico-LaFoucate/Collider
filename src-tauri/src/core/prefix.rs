@@ -32,12 +32,20 @@ pub struct PrefixInfo {
     /// versioned dir and excludes .bak — we don't hardcode the version).
     pub debug_database: Option<PathBuf>,
     pub display_fix_applied: bool,
+    /// False when Premiere has no display fix to apply: Premiere 2026 runs on Adobe's own DirectX display, so its
+    /// card shows no display-fix pill. A CLI from before beta.34 doesn't send it: true, the card shows the pill as before.
+    #[serde(default = "display_fix_needed_default")]
+    pub display_fix_needed: bool,
 
     // --- Provisional (do NOT freeze assumptions on this) ---
     /// dxvk/vkd3d versions are null until the build is pinned (hardening §5.2).
     /// Kept loose on purpose; carries "_schema": "provisional-v0".
     #[serde(default)]
     pub neutron_stack: Option<Value>,
+}
+
+fn display_fix_needed_default() -> bool {
+    true
 }
 
 impl PrefixInfo {
@@ -69,5 +77,18 @@ mod tests {
         });
         let info: PrefixInfo = serde_json::from_value(v).expect("a null documents_real must parse");
         assert!(info.valid && info.documents_real.is_none());
+        assert!(info.display_fix_needed, "an older CLI sends no display_fix_needed: keep the pill");
+    }
+
+    #[test]
+    fn premiere_2026_needs_no_display_fix() {
+        let v = serde_json::json!({
+            "valid": true, "wineprefix": "/p", "drive_c": "/p/drive_c", "user": "u",
+            "documents_symlink": "/p/drive_c/users/u/Documents", "documents_real": null,
+            "debug_database": null, "display_fix_applied": true, "display_fix_needed": false,
+            "neutron_stack": null,
+        });
+        let info: PrefixInfo = serde_json::from_value(v).expect("parses");
+        assert!(!info.display_fix_needed);
     }
 }
