@@ -64,6 +64,11 @@ OFFSET="$("$BUILT" --appimage-offset)"
 rm -f "$WORK"/squashfs-root/usr/lib/libwayland-client.so* \
       "$WORK"/squashfs-root/usr/lib/libwayland-egl.so* \
       "$WORK"/squashfs-root/usr/lib/libwayland-cursor.so*
+# Collider#2: the window stayed blank on a Fedora 45 desktop ("WebProcess didn't exit as expected"). WebKit's page
+# process spun forever in its Skia font manager, whose loop over each font's family names ends only on FcResultNoId; a
+# font whose family cannot be read answers FcResultNoMatch for every index. Patch the bundled WebKit so any other
+# result ends that font's names (2 bytes; release-webkit-patch.py explains it and refuses on an unexpected WebKit build).
+python3 "$WORK/src/release-webkit-patch.py" "$WORK/squashfs-root/usr/lib/libwebkit2gtk-4.1.so.0"
 IMG="$WORK/Collider.AppImage"
 head -c "$OFFSET" "$BUILT" > "$WORK/runtime"
 mksquashfs "$WORK/squashfs-root" "$WORK/payload.squashfs" -comp zstd -b 131072 -root-owned \
@@ -77,6 +82,8 @@ rm -rf "$WORK/squashfs-root"
 if ls "$WORK"/squashfs-root/usr/lib/libwayland-{client,egl,cursor}.so* >/dev/null 2>&1; then
     die "the AppImage still bundles a Wayland client library"
 fi
+python3 "$WORK/src/release-webkit-patch.py" --check "$WORK/squashfs-root/usr/lib/libwebkit2gtk-4.1.so.0" \
+    || die "the bundled WebKit is missing the Collider#2 font-loop patch"
 
 # Gate: nothing inside may name the home directory.
 # Inside the container that is the host's home (passed in); the container's own /root is not
