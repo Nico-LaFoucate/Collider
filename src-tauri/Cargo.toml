@@ -1,6 +1,6 @@
 [package]
 name = "collider"
-version = "0.1.17"
+version = "0.1.18"
 description = "The cockpit for running Adobe Creative Suite on Linux"
 authors = ["Nico LaFoucate"]
 license = "Apache-2.0"
