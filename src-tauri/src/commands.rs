@@ -120,6 +120,14 @@ pub async fn prefix_info(prefix: String) -> Result<Value, String> {
 /// The prefix the UI should work in, plus everything first-run setup needs to offer a way
 /// forward when there isn't one. `prefix: null` => nothing usable is registered; the UI shows
 /// setup rather than an empty library.
+/// Open a link in the desktop's browser or mail app, with an activation token from this window
+/// so the browser comes to the front (Collider#3). SYNCHRONOUS on purpose: it runs on the main
+/// thread, which GTK needs, and only spawns xdg-open (it does not wait for it).
+#[tauri::command]
+pub fn open_link(window: tauri::WebviewWindow, url: String) -> Result<(), String> {
+    crate::core::links::open_link(&window, &url)
+}
+
 #[tauri::command]
 pub fn working_prefix() -> Result<Value, String> {
     let selected = crate::core::prefixes::selected();

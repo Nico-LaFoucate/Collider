@@ -269,3 +269,9 @@ export async function updateAdobeApps({ prefix, apps, to = null, allowUnverified
   channel.onmessage = (ev) => onEvent?.(ev);
   return await invoke("update_adobe_apps", { prefix, apps, to, allowUnverified, noSnapshot, onEvent: channel });
 }
+
+/** Open a link (https: or mailto:) in the desktop's browser or mail app. Goes through Rust so the
+ *  browser gets an activation token from this window and comes to the front (Collider#3). */
+export async function openLink(url) {
+  return await invoke("open_link", { url });
+}

@@ -17,6 +17,10 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
+# open_link (core/links.rs): an activation token from the window's GTK launch context. Same
+# versions Tauri itself builds on.
+gtk = "0.18"
+gio = "0.18"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"

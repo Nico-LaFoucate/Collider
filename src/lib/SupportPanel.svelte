@@ -1,8 +1,8 @@
 <script>
   // Support: the ways to fund Neutron, in the website's own words (neutronproject.org/#support), and where a
-  // problem goes instead. Links open in the desktop's browser through plugin-shell, as ReportDialog's do.
+  // problem goes instead. Links open in the desktop's browser through openLink (api.js), as ReportDialog's do.
   import { onMount } from "svelte";
-  import { open } from "@tauri-apps/plugin-shell";
+  import { openLink as open } from "$lib/api.js";
   import { getVersion } from "@tauri-apps/api/app";
 
   const WAYS = [

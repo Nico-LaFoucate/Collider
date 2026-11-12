@@ -3,8 +3,7 @@
   // can be read before it is posted, and put on the clipboard. The CLI collects it and replaces the
   // personal details; this dialog only shows and copies it.
   import { onMount, tick } from "svelte";
-  import { open } from "@tauri-apps/plugin-shell";
-  import { report } from "$lib/api.js";
+  import { openLink as open, report } from "$lib/api.js";
 
   const BUG_FORM = "https://github.com/Nico-LaFoucate/Neutron/issues/new/choose";
 

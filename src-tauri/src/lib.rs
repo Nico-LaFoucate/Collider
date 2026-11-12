@@ -16,6 +16,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::prefix_info,
             commands::working_prefix,
+            commands::open_link,
             commands::list_prefixes,
             commands::discover_prefixes,
             commands::add_prefix,
