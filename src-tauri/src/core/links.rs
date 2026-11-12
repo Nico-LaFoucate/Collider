@@ -47,14 +47,30 @@ fn activation_token(window: &tauri::WebviewWindow) -> Option<String> {
     ctx.startup_notify_id(&info, &[]).map(|id| id.to_string()).filter(|id| !id.is_empty())
 }
 
-/// XDG_DATA_DIRS without the AppImage's own share dir, which the GTK hook puts first.
+/// The desktop's own XDG_DATA_DIRS, as it was before the AppImage's GTK hook prepended
+/// "$APPDIR/usr/share:/usr/share:". That list is where xdg-open finds the default browser's
+/// .desktop file, Flatpak browsers included (their files live in the flatpak exports dirs the
+/// session adds), so it must come back exactly: Some(value) to set, None to leave the variable
+/// unset (the desktop never set it, so the spec's default applies).
 fn desktop_data_dirs() -> Option<String> {
-    let dirs = std::env::var("XDG_DATA_DIRS").ok()?;
-    let appdir = std::env::var("APPDIR").unwrap_or_default();
+    restore_data_dirs(
+        &std::env::var("XDG_DATA_DIRS").unwrap_or_default(),
+        &std::env::var("APPDIR").unwrap_or_default(),
+    )
+}
+
+fn restore_data_dirs(dirs: &str, appdir: &str) -> Option<String> {
+    let dirs = dirs.to_string();
     if appdir.is_empty() {
-        return Some(dirs);
+        return (!dirs.is_empty()).then_some(dirs);
     }
-    Some(dirs.split(':').filter(|d| !d.is_empty() && !d.starts_with(&appdir)).collect::<Vec<_>>().join(":"))
+    let hook = format!("{appdir}/usr/share:/usr/share:");
+    let original = match dirs.strip_prefix(&hook) {
+        Some(rest) => rest.to_string(),
+        // Not the hook's shape: keep everything that is not inside the AppImage.
+        None => dirs.split(':').filter(|d| !d.is_empty() && !d.starts_with(&appdir)).collect::<Vec<_>>().join(":"),
+    };
+    (!original.is_empty()).then_some(original)
 }
 
 /// Open `url` with xdg-open, handing it an activation token from `window`.
@@ -67,9 +83,10 @@ pub fn open_link(window: &tauri::WebviewWindow, url: &str) -> Result<(), String>
     for var in APPIMAGE_GTK_VARS {
         cmd.env_remove(var);
     }
-    if let Some(dirs) = desktop_data_dirs() {
-        cmd.env("XDG_DATA_DIRS", dirs);
-    }
+    match desktop_data_dirs() {
+        Some(dirs) => cmd.env("XDG_DATA_DIRS", dirs),
+        None => cmd.env_remove("XDG_DATA_DIRS"),
+    };
     if let Some(t) = &token {
         cmd.env("XDG_ACTIVATION_TOKEN", t).env("DESKTOP_STARTUP_ID", t);
     }
@@ -80,4 +97,36 @@ pub fn open_link(window: &tauri::WebviewWindow, url: &str) -> Result<(), String>
         let _ = child.wait();
     });
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::restore_data_dirs;
+
+    const APPDIR: &str = "/tmp/.mount_ColliXYZ";
+
+    #[test]
+    fn data_dirs_come_back_exactly_with_flatpak_exports() {
+        let session = "/home/u/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share";
+        let hooked = format!("{APPDIR}/usr/share:/usr/share:{session}");
+        assert_eq!(restore_data_dirs(&hooked, APPDIR).as_deref(), Some(session));
+    }
+
+    #[test]
+    fn data_dirs_unset_by_the_desktop_stay_unset() {
+        // The hook turned an unset variable into "$APPDIR/usr/share:/usr/share:".
+        assert_eq!(restore_data_dirs(&format!("{APPDIR}/usr/share:/usr/share:"), APPDIR), None);
+    }
+
+    #[test]
+    fn data_dirs_in_another_shape_lose_only_the_appimage_entries() {
+        let dirs = format!("/usr/share:{APPDIR}/usr/share:/var/lib/flatpak/exports/share");
+        assert_eq!(restore_data_dirs(&dirs, APPDIR).as_deref(), Some("/usr/share:/var/lib/flatpak/exports/share"));
+    }
+
+    #[test]
+    fn data_dirs_outside_an_appimage_are_untouched() {
+        assert_eq!(restore_data_dirs("/a:/b", "").as_deref(), Some("/a:/b"));
+        assert_eq!(restore_data_dirs("", ""), None);
+    }
 }
